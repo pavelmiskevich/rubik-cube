@@ -1,0 +1,5 @@
+echo "Running gitleaks..."
+MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd):/path" \
+  zricethezav/gitleaks:latest detect --source=/path --redact -v || {
+    echo "Secrets detected or gitleaks unavailable"; exit 1;
+  }

@@ -1,0 +1,82 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Account {
+  id                String  @id @default(uuid(7))
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(uuid(7))
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model User {
+  id            String            @id @default(uuid(7))
+  name          String?
+  email         String            @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  createdAt     DateTime          @default(now())
+  accounts      Account[]
+  sessions      Session[]
+  trainingSessions TrainingSession[]
+}
+
+model TrainingSession {
+  id        String   @id @default(uuid(7))
+  userId    String
+  name      String   @default("Main 3x3")
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  solves    Solve[]
+
+  @@index([userId])
+}
+
+model Solve {
+  id                String          @id @default(uuid(7))
+  trainingSessionId String
+  timeMs            Int      
+  scramble          String
+  isDNF             Boolean         @default(false)
+  isPlusTwo         Boolean         @default(false)
+  createdAt         DateTime        @default(now())
+  trainingSession   TrainingSession @relation(fields: [trainingSessionId], references: [id], onDelete: Cascade)
+
+  @@index([trainingSessionId, createdAt])
+}
