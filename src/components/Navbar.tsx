@@ -1,8 +1,10 @@
-import Link from "next/link";
-import { auth, signOut } from "@/auth";
+"use client";
 
-export default async function Navbar() {
-  const session = await auth();
+import Link from "next/link";
+import { useSession, signOut } from "next-auth/react";
+
+export default function Navbar() {
+  const { data: session } = useSession();
 
   return (
     <nav className="border-b bg-white">
@@ -16,16 +18,12 @@ export default async function Navbar() {
               <Link href="/profile" className="text-gray-600 hover:text-indigo-600">
                 Профиль
               </Link>
-              <form
-                action={async () => {
-                  "use server";
-                  await signOut();
-                }}
+              <button 
+                onClick={() => signOut()} 
+                className="text-red-600 hover:text-red-500"
               >
-                <button type="submit" className="text-red-600 hover:text-red-500">
-                  Выйти
-                </button>
-              </form>
+                Выйти
+              </button>
             </>
           ) : (
             <>

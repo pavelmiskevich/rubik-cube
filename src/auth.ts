@@ -6,10 +6,11 @@ import { prisma } from "./lib/prisma";
 import bcrypt from "bcryptjs";
 
 // Dummy hash for constant-time comparison when user is not found (cost=12)
-const DUMMY_HASH = "$2a$12$Kix3hQY3/k5aP28qP9KxueU01Y8w4c3c3v3.3v3.3v3.3v3.3v3.";
+const DUMMY_HASH = "$2b$12$aY4dNGXWaW7uw3o95lhgXO2qUtU.11Z60yJjotDdFqiHDjCKMth9y";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
-  adapter: PrismaAdapter(prisma),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  adapter: PrismaAdapter(prisma as any),
   session: { strategy: "jwt" },
   providers: [
     Google,
@@ -21,7 +22,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
 
-        const email = credentials.email as string;
+        const email = (credentials.email as string).trim().toLowerCase();
         const password = credentials.password as string;
 
         // Explicitly request password to avoid Prisma extension omission if configured
