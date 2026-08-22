@@ -3,12 +3,42 @@ import { PrismaClient } from "../generated/prisma";
 import { Pool } from "pg";
 
 const globalForPrisma = globalThis as unknown as {
-  prisma?: PrismaClient;
+  prisma?: ReturnType<typeof createClient>;
 };
 
 function createClient() {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-  return new PrismaClient({ adapter: new PrismaPg(pool) });
+  const prismaPg = new PrismaPg(pool);
+  
+  const client = new PrismaClient({ adapter: prismaPg });
+  
+  // Extension to remove password from default selects
+  return client.$extends({
+    query: {
+      user: {
+        async $allOperations({ operation, args, query }) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const typedArgs = args as any;
+          if (
+            ['findUnique', 'findFirst', 'findMany'].includes(operation) &&
+            !typedArgs.select &&
+            !typedArgs.include
+          ) {
+            typedArgs.select = {
+              id: true,
+              name: true,
+              email: true,
+              emailVerified: true,
+              image: true,
+              createdAt: true,
+              // password is intentionally omitted
+            };
+          }
+          return query(typedArgs);
+        },
+      },
+    },
+  });
 }
 
 export const prisma = globalForPrisma.prisma ?? createClient();
