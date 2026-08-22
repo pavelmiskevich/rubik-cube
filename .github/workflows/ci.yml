@@ -9,7 +9,6 @@ on:
 jobs:
   audit:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -19,7 +18,7 @@ jobs:
       - run: npm ci
       - name: Audit dependencies
         # Принято: уязвимость deepmerge-ts через @prisma/config. Фикса нет до обновления Prisma.
-        run: npm audit --audit-level=high --omit=dev
+        run: npx audit-ci --allowlist GHSA-ggr8-5vv4-36mx --high
 
   build:
     runs-on: ubuntu-latest
