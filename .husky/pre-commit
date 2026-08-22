@@ -1,3 +1,9 @@
-MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd):/path" zricethezav/gitleaks:latest protect --source=/path --staged --redact -v || { echo "Secrets detected"; exit 1; }
+#!/bin/sh
+if ! docker info >/dev/null 2>&1; then
+  echo "Docker is not running. Please start Docker to run gitleaks."
+  exit 1
+fi
+
+MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd):/path" -w /path zricethezav/gitleaks:v8.30.1 git --staged -v || { echo "Secrets detected by gitleaks"; exit 1; }
 npm run lint
 npx tsc --noEmit

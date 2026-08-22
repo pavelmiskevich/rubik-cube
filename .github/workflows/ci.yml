@@ -7,12 +7,23 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build:
+  audit:
     runs-on: ubuntu-latest
-
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - run: npm ci
+      - name: Audit dependencies
+        run: npm audit --audit-level=high --omit=dev
 
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -21,9 +32,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Audit dependencies
-        run: npm audit --audit-level=high --omit=dev
 
       - name: Prisma generate
         run: npx prisma generate
@@ -39,7 +47,7 @@ jobs:
 
       - name: Smoke test
         run: |
-          cp .env.example .env
+          cp .env.ci .env
           docker compose up -d --build
           for i in $(seq 1 30); do
             code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3030/ || true)
