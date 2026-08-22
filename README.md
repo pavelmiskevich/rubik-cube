@@ -3,13 +3,13 @@
 Платформа для обучения сборке кубика Рубика. Включает WCA-скрамблер, таймер со статистикой (Ao5, Ao12) и 3D-тренажер.
 
 ## Технологии
-- **Next.js 14** (App Router, TypeScript, Tailwind CSS)
+- **Next.js 16** (App Router, TypeScript, Tailwind CSS)
 - **Prisma 7** + PostgreSQL (включая UUIDv7)
 - **Docker Compose** + Caddy (локальный прокси)
 
 ## Запуск (Docker)
 
-1. Скопируйте `.env.example` в `.env` и укажите секреты (генерируйте `NEXTAUTH_SECRET` через `openssl rand -base64 32`).
+1. Скопируйте `.env.example` в `.env` и укажите секреты (генерируйте `NEXTAUTH_SECRET` через `openssl rand -base64 32`). **Внимание:** `POSTGRES_USER`, `POSTGRES_PASSWORD` и `POSTGRES_DB` обязательны для инициализации БД!
 2. Выполните:
    ```bash
    docker compose up -d --build
@@ -19,7 +19,10 @@
 
 ## Запуск (Локально)
 
-1. Поднимите только БД (с предварительным пробросом порта, если нужно): `docker compose up -d db`.
+1. Поднимите только БД с пробросом порта (порт базы будет доступен на localhost:5432):
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d db
+   ```
 2. Установите зависимости: `npm install`.
 3. Примените миграции: `npx prisma migrate dev`.
 4. Запустите Next.js: `npm run dev`.
