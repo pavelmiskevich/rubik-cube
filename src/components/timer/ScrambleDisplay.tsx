@@ -3,13 +3,22 @@
 import { useCallback, useEffect, useState } from "react";
 import { generateScramble } from "@/lib/scrambler";
 
-export default function ScrambleDisplay() {
+interface ScrambleDisplayProps {
+  /** Notified with every scramble, so a timer can record the one being solved. */
+  onChange?: (scramble: string) => void;
+}
+
+export default function ScrambleDisplay({ onChange }: ScrambleDisplayProps) {
   // The scramble is random, so it cannot be produced during render: the server
   // and the client would disagree and hydration would fail. It is generated
   // once the component is mounted on the client instead.
   const [scramble, setScramble] = useState("");
 
-  const regenerate = useCallback(() => setScramble(generateScramble()), []);
+  const regenerate = useCallback(() => {
+    const next = generateScramble();
+    setScramble(next);
+    onChange?.(next);
+  }, [onChange]);
 
   useEffect(() => {
     // react-hooks/set-state-in-effect is right in general, but the first

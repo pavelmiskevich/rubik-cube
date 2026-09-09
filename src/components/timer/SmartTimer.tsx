@@ -2,38 +2,40 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { saveSolve } from "@/actions/timer";
+import { formatSolveTime } from "@/lib/format";
 
 type TimerState = "IDLE" | "READY" | "RUNNING" | "STOPPED";
 
-const INITIAL_DISPLAY = "0.00";
+const INITIAL_DISPLAY = formatSolveTime(0);
 
-function formatTime(ms: number) {
-  const minutes = Math.floor(ms / 60000);
-  const seconds = Math.floor((ms % 60000) / 1000);
-  const centiseconds = Math.floor((ms % 1000) / 10);
-
-  if (minutes > 0) {
-    return `${minutes}:${seconds.toString().padStart(2, "0")}.${centiseconds
-      .toString()
-      .padStart(2, "0")}`;
-  }
-  return `${seconds}.${centiseconds.toString().padStart(2, "0")}`;
+interface SmartTimerProps {
+  /** Scramble recorded alongside the solve; empty when the timer runs standalone. */
+  scramble?: string;
+  /** Solves are only persisted for a signed-in user; used to explain that up front. */
+  canSave?: boolean;
 }
 
-export default function SmartTimer() {
+export default function SmartTimer({ scramble = "", canSave = true }: SmartTimerProps) {
   const [timerState, setTimerState] = useState<TimerState>("IDLE");
   const [saveError, setSaveError] = useState<string | null>(null);
   const timeDisplayRef = useRef<HTMLDivElement>(null);
 
   const stateRef = useRef<TimerState>("IDLE");
+  // Read at stop time so a scramble regenerated mid-solve does not rebind the
+  // whole stop callback.
+  const scrambleRef = useRef(scramble);
   const startTimeRef = useRef<number>(0);
   const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    scrambleRef.current = scramble;
+  }, [scramble]);
 
   // The running time is written straight to the DOM: re-rendering React 60
   // times a second to move two digits is wasted work.
   const updateDisplay = useCallback((ms: number) => {
     if (timeDisplayRef.current) {
-      timeDisplayRef.current.innerText = formatTime(ms);
+      timeDisplayRef.current.innerText = formatSolveTime(ms);
     }
   }, []);
 
@@ -70,9 +72,11 @@ export default function SmartTimer() {
     setState("STOPPED");
     updateDisplay(elapsed);
 
+    if (!canSave) return;
+
     // A failed write used to disappear into console.error, leaving the solve
     // silently unrecorded while the UI showed a finished time.
-    saveSolve(Math.round(elapsed)).then(
+    saveSolve(Math.round(elapsed), scrambleRef.current).then(
       (result) => {
         if (!result.success) setSaveError(result.error);
       },
@@ -81,7 +85,7 @@ export default function SmartTimer() {
         setSaveError("Не удалось сохранить результат");
       }
     );
-  }, [setState, updateDisplay]);
+  }, [canSave, setState, updateDisplay]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -163,6 +167,11 @@ export default function SmartTimer() {
       <p className="mt-8 text-gray-500 text-sm">
         Удерживайте пробел или экран для старта. Любая кнопка/тап для остановки.
       </p>
+      {!canSave && (
+        <p className="mt-2 text-sm text-gray-500">
+          Результаты сохраняются только для вошедших пользователей.
+        </p>
+      )}
       {saveError && (
         <p className="mt-2 text-sm text-red-600" role="alert">
           {saveError}
