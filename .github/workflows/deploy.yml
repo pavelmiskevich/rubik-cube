@@ -5,46 +5,94 @@ on:
     branches:
       - main
 
+# One deploy at a time, and never cancel one that has started: the stack runs
+# `prisma migrate deploy` on the way up, and interrupting that leaves the
+# database half-migrated.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
 jobs:
-  test:
+  verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: 'npm'
+          node-version-file: .nvmrc
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Generate Prisma
-        run: npx prisma generate
-
       - name: Lint
         run: npm run lint
 
-      - name: Unit Tests
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      # --if-present covers the window where the suites from #5, #6 and #7 have
+      # not been merged into main yet. Once they are, the scripts always exist
+      # and a failure here blocks the deploy.
+      - name: Unit tests
         run: npm run test --if-present
 
-      - name: E2E Tests
+      - name: E2E tests
         run: npm run test:e2e --if-present
 
+      - name: Build
+        run: npm run build
+
   deploy:
-    needs: test
+    needs: verify
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Scopes the SSH secrets to the production environment and gives the repo a
+    # place to require an approval before anything reaches the server.
+    environment: production
     steps:
-      - name: Deploy to Server
-        uses: appleboy/ssh-action@master
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script_stop: true
           script: |
+            set -eu
             cd /opt/rubik-cube
-            git pull origin main
-            npm ci
-            npx prisma generate
-            npx prisma migrate deploy
+
+            # Reset rather than pull: a merge conflict or a stray local edit on
+            # the server must not leave the checkout on an unknown revision.
+            git fetch --prune origin main
+            git reset --hard origin/main
+
+            # The image build runs `prisma generate` and `next build`, and the
+            # compose stack applies migrations through its own `migrate`
+            # service, so there is nothing left to install on the host.
             docker compose up -d --build
+
+            # `up -d` returns as soon as the containers start, which is not the
+            # same as the app answering requests. Without this check a deploy
+            # that boot-loops still reports success.
+            port=$(grep -E '^HOST_PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d '"' || true)
+            port=${port:-3030}
+
+            for _ in $(seq 1 30); do
+              code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${port}/" || true)
+              if [ "$code" = "200" ]; then
+                docker image prune -f
+                exit 0
+              fi
+              sleep 2
+            done
+
+            echo "App did not answer with 200 within 60s"
+            docker compose logs --tail=200
+            exit 1
