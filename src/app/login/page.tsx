@@ -83,7 +83,7 @@ function LoginForm() {
       
       <div className="mt-6">
         <button
-          onClick={() => signIn("google", { callbackUrl: "/profile" })}
+          onClick={() => signIn("google", { redirectTo: "/profile" })}
           className="flex w-full justify-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-semibold leading-6 text-gray-900 hover:bg-gray-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
         >
           Войти через Google
