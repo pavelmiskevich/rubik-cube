@@ -5,90 +5,71 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { signIn } from "@/auth";
 import { AuthError } from "next-auth";
-import { headers } from "next/headers";
+import { getClientIp, rateLimit } from "@/lib/rate-limit";
 
 const registerSchema = z.object({
-  name: z.string().min(2, "Имя должно содержать минимум 2 символа"),
-  email: z.string().email("Неверный формат email").trim().toLowerCase(),
+  name: z.string().trim().min(2, "Имя должно содержать минимум 2 символа"),
+  email: z.string().trim().toLowerCase().email("Неверный формат email"),
   password: z.string().min(6, "Пароль должен содержать минимум 6 символов"),
 });
 
-// Simple in-memory rate limiter (resets on restart)
-const rateLimit = new Map<string, { count: number; expiresAt: number }>();
-const MAX_ATTEMPTS = 5;
-const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const WINDOW_MS = 15 * 60 * 1000;
+const REGISTER_LIMIT = 5;
+const LOGIN_LIMIT = 10;
 
-function checkRateLimit(ip: string | undefined): boolean {
-  if (!ip) return true; // Can't limit without IP
-  
-  const now = Date.now();
-  const record = rateLimit.get(ip);
-  
-  if (!record || record.expiresAt < now) {
-    rateLimit.set(ip, { count: 1, expiresAt: now + WINDOW_MS });
-    return true;
-  }
-  
-  if (record.count >= MAX_ATTEMPTS) {
-    return false;
-  }
-  
-  record.count += 1;
-  return true;
-}
+const TOO_MANY_ATTEMPTS = "Слишком много попыток. Попробуйте позже.";
 
 export async function registerUser(formData: FormData) {
   try {
-    const headersList = await headers();
-    const ip = headersList.get("x-forwarded-for") || "unknown";
-    if (!checkRateLimit(ip)) {
-      return { error: "Слишком много попыток. Попробуйте позже." };
+    const ip = await getClientIp();
+    if (!rateLimit(`register:${ip}`, { limit: REGISTER_LIMIT, windowMs: WINDOW_MS }).allowed) {
+      return { error: TOO_MANY_ATTEMPTS };
     }
 
-    const data = Object.fromEntries(formData.entries());
-    const parsed = registerSchema.safeParse(data);
+    const parsed = registerSchema.safeParse({
+      name: formData.get("name"),
+      email: formData.get("email"),
+      password: formData.get("password"),
+    });
 
     if (!parsed.success) {
       return { error: parsed.error.issues[0].message };
     }
 
     const { name, email, password } = parsed.data;
-
     const hashedPassword = await bcrypt.hash(password, 12);
 
     try {
       await prisma.user.create({
-        data: {
-          name,
-          email,
-          password: hashedPassword,
-        },
+        data: { name, email, password: hashedPassword },
       });
-    } catch (e) {
-      if (typeof e === "object" && e !== null && "code" in e && (e as { code: string }).code === "P2002") {
-        // Hide enumeration
+    } catch (error) {
+      // P2002 = unique constraint on email. Reporting "already registered"
+      // would turn the form into an account-enumeration oracle, so a taken
+      // email gets exactly the same answer as a fresh one.
+      if (isPrismaError(error, "P2002")) {
         return { success: true };
       }
-      throw e;
+      throw error;
     }
 
     return { success: true };
   } catch (error) {
-    console.error(error);
+    console.error("registerUser failed", error);
     return { error: "Произошла ошибка при регистрации" };
   }
 }
 
 export async function loginUser(formData: FormData) {
-  try {
-    const headersList = await headers();
-    const ip = headersList.get("x-forwarded-for") || "unknown";
-    if (!checkRateLimit(ip)) {
-      return { error: "Слишком много попыток. Попробуйте позже." };
-    }
+  const ip = await getClientIp();
+  if (!rateLimit(`login:${ip}`, { limit: LOGIN_LIMIT, windowMs: WINDOW_MS }).allowed) {
+    return { error: TOO_MANY_ATTEMPTS };
+  }
 
-    const email = String(formData.get("email") ?? "").trim().toLowerCase();
-    const password = String(formData.get("password") ?? "");
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const password = String(formData.get("password") ?? "");
+
+  try {
     await signIn("credentials", { email, password, redirectTo: "/profile" });
     return { success: true };
   } catch (error) {
@@ -100,6 +81,17 @@ export async function loginUser(formData: FormData) {
           return { error: "Что-то пошло не так" };
       }
     }
-    throw error; // Rethrow to allow Next.js redirect to work
+    // A successful sign-in ends with the NEXT_REDIRECT control-flow error;
+    // swallowing it here would leave the user on the login page.
+    throw error;
   }
+}
+
+function isPrismaError(error: unknown, code: string): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code: unknown }).code === code
+  );
 }
