@@ -3,12 +3,19 @@ import { PrismaClient } from "../generated/prisma";
 import { Pool } from "pg";
 
 const globalForPrisma = globalThis as unknown as {
-  prisma?: PrismaClient;
+  prisma?: ReturnType<typeof createClient>;
 };
 
 function createClient() {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-  return new PrismaClient({ adapter: new PrismaPg(pool) });
+  const prismaPg = new PrismaPg(pool);
+  
+  const client = new PrismaClient({ 
+    adapter: prismaPg,
+    omit: { user: { password: true } }
+  });
+  
+  return client;
 }
 
 export const prisma = globalForPrisma.prisma ?? createClient();
