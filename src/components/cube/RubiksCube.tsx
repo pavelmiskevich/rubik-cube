@@ -12,6 +12,7 @@ import {
 import { Canvas, ThreeEvent } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
+import { Axis, resolveDragRotation } from "./dragRotation";
 
 // Sticker colours in BoxGeometry material order: right, left, top, bottom, front, back.
 const COLORS = ["#B90000", "#FF5900", "#FFFFFF", "#FFD500", "#009B48", "#0045AD"];
@@ -19,8 +20,6 @@ const COLORS = ["#B90000", "#FF5900", "#FFFFFF", "#FFD500", "#009B48", "#0045AD"
 const CUBIE_SIZE = 0.95;
 const DRAG_THRESHOLD = 0.2;
 const DEFAULT_DURATION = 300;
-
-type Axis = "x" | "y" | "z";
 
 interface RubiksCubeProps {
   onRotateEnd?: () => void;
@@ -217,10 +216,36 @@ const CubeCore = forwardRef<
 
   useImperativeHandle(ref, () => ({ rotateSlice }), [rotateSlice]);
 
-  const endDrag = useCallback(() => {
-    setOrbitEnabled(true);
+  /** One slice turn per press: stop tracking, but keep the camera pinned. */
+  const endSliceGesture = useCallback(() => {
     dragStart.current = null;
+  }, []);
+
+  /**
+   * Release. OrbitControls armed its own rotate on the same pointerdown, before
+   * `enabled` could go false, and it stays armed until the button comes up — so
+   * handing control back any earlier than this let the camera swing away in the
+   * middle of a turn.
+   */
+  const endPointerSession = useCallback(() => {
+    dragStart.current = null;
+    setOrbitEnabled(true);
   }, [setOrbitEnabled]);
+
+  // The session ends when the button is released, wherever that happens — the
+  // pointer may well be off the canvas by then. It must NOT end when the
+  // pointer crosses from one cubie to the next: react-three-fiber raises
+  // pointerout for that too, which used to kill any drag long enough to leave
+  // the cubie it started on.
+  useEffect(() => {
+    const stop = () => endPointerSession();
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+    return () => {
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+    };
+  }, [endPointerSession]);
 
   const handlePointerDown = (event: ThreeEvent<PointerEvent>) => {
     event.stopPropagation();
@@ -239,58 +264,37 @@ const CubeCore = forwardRef<
   const handlePointerMove = (event: ThreeEvent<PointerEvent>) => {
     if (!dragStart.current || animating.current) return;
 
-    const dragVec = new THREE.Vector3().subVectors(event.point, dragStart.current.point);
-    if (dragVec.length() < DRAG_THRESHOLD) return;
+    // The ray crosses several cubies, and react-three-fiber dispatches this
+    // handler once per intersection, nearest first. Only the nearest one is on
+    // the surface the user grabbed; the rest report points deep inside the cube.
+    // Without this, a move below the threshold returned and let the next, deeper
+    // dispatch decide the turn from a vector pointing along the camera ray.
+    event.stopPropagation();
 
-    const { normal, mesh } = dragStart.current;
+    // Track the pointer against the plane of the grabbed face rather than the
+    // point it happens to hit. Once a drag slides past a corner onto the next
+    // face, every further hit point moves across that other face, so the
+    // gesture stopped accumulating and quietly died near a face edge.
+    const { point: start, normal } = dragStart.current;
+    const facePlane = new THREE.Plane(normal, -normal.dot(start));
+    const onPlane = event.ray.intersectPlane(facePlane, new THREE.Vector3());
+    if (!onPlane) return;
+
+    const dragVector = onPlane.sub(start);
+
     const origin = new THREE.Vector3();
-    mesh.getWorldPosition(origin);
+    dragStart.current.mesh.getWorldPosition(origin);
 
-    const absX = Math.abs(dragVec.x);
-    const absY = Math.abs(dragVec.y);
-    const absZ = Math.abs(dragVec.z);
+    const rotation = resolveDragRotation(
+      normal,
+      dragVector,
+      origin,
+      DRAG_THRESHOLD
+    );
+    if (!rotation) return;
 
-    let axis: Axis = "x";
-    let direction = 0;
-    let index = 0;
-
-    if (Math.abs(normal.x) > 0.5) {
-      // Left/right face: a vertical drag turns a z-slice, a depth drag a y-slice.
-      if (absY > absZ) {
-        axis = "z";
-        direction = Math.sign(dragVec.y) * Math.sign(normal.x);
-        index = Math.round(origin.z);
-      } else {
-        axis = "y";
-        direction = -Math.sign(dragVec.z) * Math.sign(normal.x);
-        index = Math.round(origin.y);
-      }
-    } else if (Math.abs(normal.y) > 0.5) {
-      // Top/bottom face.
-      if (absX > absZ) {
-        axis = "z";
-        direction = -Math.sign(dragVec.x) * Math.sign(normal.y);
-        index = Math.round(origin.z);
-      } else {
-        axis = "x";
-        direction = Math.sign(dragVec.z) * Math.sign(normal.y);
-        index = Math.round(origin.x);
-      }
-    } else if (Math.abs(normal.z) > 0.5) {
-      // Front/back face.
-      if (absX > absY) {
-        axis = "y";
-        direction = Math.sign(dragVec.x) * Math.sign(normal.z);
-        index = Math.round(origin.y);
-      } else {
-        axis = "x";
-        direction = -Math.sign(dragVec.y) * Math.sign(normal.z);
-        index = Math.round(origin.x);
-      }
-    }
-
-    void rotateSlice(axis, index, direction);
-    endDrag();
+    void rotateSlice(rotation.axis, rotation.index, rotation.direction);
+    endSliceGesture();
   };
 
   return (
@@ -298,9 +302,6 @@ const CubeCore = forwardRef<
       <group
         ref={groupRef}
         onPointerDown={handlePointerDown}
-        onPointerUp={endDrag}
-        onPointerOut={endDrag}
-        onPointerCancel={endDrag}
         onPointerMove={handlePointerMove}
       />
       <group ref={pivotRef} />
