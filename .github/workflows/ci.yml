@@ -49,9 +49,8 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
-      # --if-present until the suites from #5 and #6 are merged into main.
       - name: Unit tests
-        run: npm run test --if-present
+        run: npm test
 
       - name: Build
         run: npm run build

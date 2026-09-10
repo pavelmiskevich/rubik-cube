@@ -37,20 +37,24 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
-      # --if-present covers the window where the suites from #5, #6 and #7 have
-      # not been merged into main yet. Once they are, the scripts always exist
-      # and a failure here blocks the deploy.
+      # No --if-present: a missing test script must fail the build, not skip.
+      # That flag once hid the fact that no unit test ran at all.
       - name: Unit tests
-        run: npm run test --if-present
+        run: npm test
 
       - name: E2E tests
-        run: npm run test:e2e --if-present
+        run: npm run test:e2e
 
       - name: Build
         run: npm run build
 
   deploy:
     needs: verify
+    # Off until a server exists (#26); verify still runs on every push. Must be
+    # a repository variable, not an environment one: a job-level `if` is
+    # evaluated before the production environment is applied, so environment
+    # variables are not visible here.
+    if: vars.DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Scopes the SSH secrets to the production environment and gives the repo a
