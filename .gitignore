@@ -41,3 +41,6 @@ next-env.d.ts
 
 # review notes (local only)
 /review/
+
+# личные разрешения Claude Code — у каждого разработчика свои
+.claude/settings.local.json
