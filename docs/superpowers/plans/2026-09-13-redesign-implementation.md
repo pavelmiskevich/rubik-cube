@@ -89,8 +89,11 @@ TypeScript 5, Jest 30 + ts-jest, Cypress 15, Prisma 7, `@react-three/fiber` 9 +
 | `src/components/ui/Badge.tsx` | Метка (`+2`, `DNF`). |
 | `src/components/ui/Stat.tsx` | Крупное число с подписью (Ao5, Ao12). |
 | `src/components/ui/EmptyState.tsx` | Пустое состояние с заголовком, текстом и действием. |
+| `src/components/timer/workspaceState.ts` | Тип `TimerState` и редьюсер рабочего экрана. Чистый модуль. |
+| `src/components/timer/workspaceState.test.ts` | Тест переходов состояния рабочего экрана. |
 | `src/lib/solves.ts` | Чтение сборок пользователя и отображение в `SolveResult`. |
 | `src/lib/solves.test.ts` | Тест чистого отображения строк. |
+| `src/lib/format.test.ts` | Тест подсказки «ещё N до AoN». |
 | `src/lib/sparkline.ts` | Геометрия спарклайна. Чистые функции. |
 | `src/lib/sparkline.test.ts` | Тест геометрии. |
 | `src/components/dashboard/Sparkline.tsx` | SVG-график по токенам. |
@@ -1018,6 +1021,8 @@ gh pr create --base main --title "Каркас страницы и набор UI
 зависимостей существующих `useCallback`.
 
 **Файлы:**
+- Создать: `src/components/timer/workspaceState.ts`,
+  `src/components/timer/workspaceState.test.ts`
 - Изменить: `src/components/timer/SmartTimer.tsx`,
   `src/components/timer/ScrambleDisplay.tsx`,
   `src/components/timer/TimerWorkspace.tsx`, `src/app/timer/page.tsx`,
@@ -1027,18 +1032,30 @@ gh pr create --base main --title "Каркас страницы и набор UI
 - Потребляет: `Stat`, `Badge`, `Card`, `Button` из задачи 2;
   `calculateAo5`, `calculateAo12`, `effectiveTime`, тип `SolveResult` из
   `src/lib/statistics.ts`; `formatSolveTime` из `src/lib/format.ts`.
-- Отдаёт:
-  - `export type TimerState = "IDLE" | "READY" | "RUNNING" | "STOPPED"` из `SmartTimer.tsx`;
-  - `SmartTimer` получает два новых необязательных пропа:
-    `onStateChange?: (state: TimerState) => void` и `onSolve?: (timeMs: number) => void`;
+- Отдаёт, из `workspaceState.ts`:
+  - `export type TimerState = "IDLE" | "READY" | "RUNNING" | "STOPPED"`;
+  - `WorkspaceState { solves: SolveResult[]; refreshToken: number; focused: boolean }`;
+  - `WorkspaceEvent = { type: "timer-state"; state: TimerState } | { type: "solve"; timeMs: number }`;
+  - `initialWorkspaceState(solves: SolveResult[]): WorkspaceState`;
+  - `workspaceReducer(state: WorkspaceState, event: WorkspaceEvent): WorkspaceState`.
+- Отдаёт, из компонентов:
+  - `SmartTimer` реэкспортирует `TimerState` и получает два новых
+    необязательных пропа: `onStateChange?: (state: TimerState) => void` и
+    `onSolve?: (timeMs: number) => void`;
   - `ScrambleDisplay` получает `refreshToken?: number`;
   - `TimerWorkspace({ canSave: boolean })` рисует весь экран.
+
+Тип состояния живёт в чистом модуле, а не в `SmartTimer.tsx`, ровно по одной
+причине: так тест редьюсера не тянет за собой клиентский компонент с JSX.
 
 - [ ] **Шаг 1: Добавить в SmartTimer уведомления наружу**
 
 В `src/components/timer/SmartTimer.tsx`:
 
-1. Экспортировать тип: `export type TimerState = ...` (был локальным).
+1. Локальный `type TimerState` убрать, взять его из чистого модуля и
+   реэкспортировать, чтобы существующие импорты не ломались:
+   `export type { TimerState } from "./workspaceState";` плюс
+   `import type { TimerState } from "./workspaceState";` для внутреннего кода.
 2. Добавить пропы в `SmartTimerProps`:
 
 ```tsx
@@ -1098,25 +1115,157 @@ gh pr create --base main --title "Каркас страницы и набор UI
 `data-testid="scramble"` и `data-testid="new-scramble"` **сохранить**: на них
 держится сквозной сценарий.
 
-- [ ] **Шаг 3: Собрать рабочий экран**
+- [ ] **Шаг 3: Написать падающий тест редьюсера рабочего экрана**
+
+Состояние рабочего экрана — не вёрстка, а логика переходов, и её стоит закрепить
+тестом без всякой библиотеки для рендера компонентов. Создать
+`src/components/timer/workspaceState.test.ts`:
+
+```ts
+import {
+  initialWorkspaceState,
+  workspaceReducer,
+  type WorkspaceState,
+} from "./workspaceState";
+
+const start = (): WorkspaceState => initialWorkspaceState([]);
+
+describe("состояние рабочего экрана", () => {
+  it("начинается без сборок, с погашенным фокусом", () => {
+    expect(start()).toEqual({ solves: [], refreshToken: 0, focused: false });
+  });
+
+  it("сохраняет переданную историю сборок", () => {
+    const solves = [{ id: "a", timeMs: 12450 }];
+    expect(initialWorkspaceState(solves).solves).toEqual(solves);
+  });
+
+  it("включает фокус на старте замера", () => {
+    const next = workspaceReducer(start(), { type: "timer-state", state: "RUNNING" });
+    expect(next.focused).toBe(true);
+  });
+
+  it("гасит фокус на остановке и просит новый скрамбл", () => {
+    const next = workspaceReducer(start(), { type: "timer-state", state: "STOPPED" });
+    expect(next.focused).toBe(false);
+    expect(next.refreshToken).toBe(1);
+  });
+
+  it("не просит новый скрамбл, пока сборка не закончилась", () => {
+    const ready = workspaceReducer(start(), { type: "timer-state", state: "READY" });
+    const running = workspaceReducer(ready, { type: "timer-state", state: "RUNNING" });
+    expect(running.refreshToken).toBe(0);
+  });
+
+  it("выдаёт ровно один новый скрамбл на каждую остановку", () => {
+    let state = start();
+    for (let i = 0; i < 3; i++) {
+      state = workspaceReducer(state, { type: "timer-state", state: "RUNNING" });
+      state = workspaceReducer(state, { type: "timer-state", state: "STOPPED" });
+    }
+    expect(state.refreshToken).toBe(3);
+  });
+
+  it("дописывает сборку в конец — средние читают окно с конца", () => {
+    const first = workspaceReducer(start(), { type: "solve", timeMs: 12450 });
+    const second = workspaceReducer(first, { type: "solve", timeMs: 9800 });
+    expect(second.solves.map((solve) => solve.timeMs)).toEqual([12450, 9800]);
+  });
+
+  it("сборка не трогает ни фокус, ни счётчик скрамбла", () => {
+    const next = workspaceReducer(start(), { type: "solve", timeMs: 9800 });
+    expect(next.refreshToken).toBe(0);
+    expect(next.focused).toBe(false);
+  });
+
+  it("не меняет переданное состояние на месте", () => {
+    const state = Object.freeze(start());
+    expect(() => workspaceReducer(state, { type: "solve", timeMs: 9800 })).not.toThrow();
+    expect(state.solves).toHaveLength(0);
+  });
+});
+```
+
+- [ ] **Шаг 4: Запустить тест и убедиться, что он падает**
+
+Запуск: `npx jest src/components/timer/workspaceState.test.ts`
+Ожидаемо: FAIL — модуль `./workspaceState` не найден.
+
+- [ ] **Шаг 5: Реализовать редьюсер**
+
+Создать `src/components/timer/workspaceState.ts`:
+
+```ts
+import type { SolveResult } from "@/lib/statistics";
+
+export type TimerState = "IDLE" | "READY" | "RUNNING" | "STOPPED";
+
+export interface WorkspaceState {
+  /** Хронологический порядок: средние читают окно с конца. */
+  solves: SolveResult[];
+  /** Меняется — ScrambleDisplay выдаёт новый скрамбл. */
+  refreshToken: number;
+  /** Во время замера обвязка гаснет. */
+  focused: boolean;
+}
+
+export type WorkspaceEvent =
+  | { type: "timer-state"; state: TimerState }
+  | { type: "solve"; timeMs: number };
+
+export function initialWorkspaceState(solves: SolveResult[]): WorkspaceState {
+  return { solves, refreshToken: 0, focused: false };
+}
+
+/**
+ * Переходы состояния рабочего экрана. Вынесено из компонента, чтобы правила —
+ * когда гаснет обвязка и когда выдаётся новый скрамбл — проверялись тестом,
+ * а не глазами.
+ */
+export function workspaceReducer(
+  state: WorkspaceState,
+  event: WorkspaceEvent
+): WorkspaceState {
+  switch (event.type) {
+    case "timer-state":
+      return {
+        ...state,
+        focused: event.state === "RUNNING",
+        // Новый скрамбл ровно один раз на остановку: иначе легко собрать один
+        // и тот же скрамбл дважды подряд.
+        refreshToken:
+          event.state === "STOPPED" ? state.refreshToken + 1 : state.refreshToken,
+      };
+    case "solve":
+      return { ...state, solves: [...state.solves, { timeMs: event.timeMs }] };
+  }
+}
+```
+
+- [ ] **Шаг 6: Запустить тест и убедиться, что он проходит**
+
+Запуск: `npx jest src/components/timer/workspaceState.test.ts`
+Ожидаемо: PASS, 9 тестов.
+
+- [ ] **Шаг 7: Собрать рабочий экран**
 
 Полностью заменить `src/components/timer/TimerWorkspace.tsx`:
 
 ```tsx
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useReducer, useState } from "react";
 import ScrambleDisplay from "./ScrambleDisplay";
-import SmartTimer, { type TimerState } from "./SmartTimer";
+import SmartTimer from "./SmartTimer";
+import {
+  initialWorkspaceState,
+  workspaceReducer,
+  type TimerState,
+} from "./workspaceState";
 import Badge from "@/components/ui/Badge";
 import Stat from "@/components/ui/Stat";
 import { formatSolveTime } from "@/lib/format";
-import {
-  calculateAo5,
-  calculateAo12,
-  effectiveTime,
-  type SolveResult,
-} from "@/lib/statistics";
+import { calculateAo5, calculateAo12, effectiveTime } from "@/lib/statistics";
 
 interface TimerWorkspaceProps {
   canSave: boolean;
@@ -1124,43 +1273,38 @@ interface TimerWorkspaceProps {
 
 /**
  * Весь цикл тренировки на одной странице: скрамбл сверху, таймер в центре,
- * живые средние и последние сборки под ним.
+ * живые средние и последние сборки под ним. Правила переходов живут в
+ * workspaceState.ts и покрыты тестами; здесь остаётся только отрисовка.
  */
 export default function TimerWorkspace({ canSave }: TimerWorkspaceProps) {
   const [scramble, setScramble] = useState("");
-  const [refreshToken, setRefreshToken] = useState(0);
-  const [focused, setFocused] = useState(false);
-  const [solves, setSolves] = useState<SolveResult[]>([]);
+  const [state, dispatch] = useReducer(workspaceReducer, initialWorkspaceState([]));
 
-  const handleStateChange = useCallback((state: TimerState) => {
-    setFocused(state === "RUNNING");
-    if (state === "STOPPED") {
-      // Новый скрамбл после сборки: раньше его нужно было просить кнопкой, и
-      // легко было собрать один и тот же скрамбл дважды подряд.
-      // saveSolve читает свой scrambleRef синхронно, ещё до того как этот
-      // setState доедет до перерисовки, поэтому сборка записывается со своим
-      // скрамблом, а не со следующим.
-      setRefreshToken((token) => token + 1);
-    }
+  const handleStateChange = useCallback((timerState: TimerState) => {
+    // saveSolve читает свой scrambleRef синхронно, ещё до того как это
+    // обновление доедет до перерисовки, поэтому сборка записывается со своим
+    // скрамблом, а не со следующим.
+    dispatch({ type: "timer-state", state: timerState });
   }, []);
 
   const handleSolve = useCallback((timeMs: number) => {
-    setSolves((previous) => [...previous, { timeMs }]);
+    dispatch({ type: "solve", timeMs });
   }, []);
 
   // Во время замера на экране не остаётся ничего, кроме цифр.
   useEffect(() => {
-    document.documentElement.dataset.focus = focused ? "on" : "off";
+    document.documentElement.dataset.focus = state.focused ? "on" : "off";
     return () => {
       delete document.documentElement.dataset.focus;
     };
-  }, [focused]);
+  }, [state.focused]);
 
+  const solves = state.solves;
   const recent = solves.map((solve, index) => ({ solve, number: index + 1 })).reverse();
 
   return (
     <div className="space-y-8">
-      <ScrambleDisplay onChange={setScramble} refreshToken={refreshToken} />
+      <ScrambleDisplay onChange={setScramble} refreshToken={state.refreshToken} />
 
       <SmartTimer
         scramble={scramble}
@@ -1204,7 +1348,7 @@ export default function TimerWorkspace({ canSave }: TimerWorkspaceProps) {
 }
 ```
 
-- [ ] **Шаг 4: Добавить правило режима фокуса**
+- [ ] **Шаг 8: Добавить правило режима фокуса**
 
 В `src/app/globals.css` дописать:
 
@@ -1220,7 +1364,7 @@ export default function TimerWorkspace({ canSave }: TimerWorkspaceProps) {
 }
 ```
 
-- [ ] **Шаг 5: Упростить страницу таймера**
+- [ ] **Шаг 9: Упростить страницу таймера**
 
 `src/app/timer/page.tsx` — заголовок и собственный контейнер убрать, страница
 становится тонкой обёрткой:
@@ -1239,7 +1383,7 @@ export default async function TimerPage() {
 }
 ```
 
-- [ ] **Шаг 6: Переписать сквозной сценарий**
+- [ ] **Шаг 10: Переписать сквозной сценарий**
 
 Скрамбл переехал с главной на рабочий экран, поэтому сценарий начинается сразу
 с `/timer`. Полностью заменить `cypress/e2e/timer.cy.ts`:
@@ -1320,7 +1464,7 @@ describe("Рабочий экран", () => {
 });
 ```
 
-- [ ] **Шаг 7: Прогнать проверки, включая сквозной сценарий**
+- [ ] **Шаг 11: Прогнать проверки, включая сквозной сценарий**
 
 ```bash
 npm run lint
@@ -1334,7 +1478,7 @@ npm run build
 проходит. Особое внимание: тесты `dragRotation` и `statistics` не должны даже
 дрогнуть — если дрогнули, изменение в `SmartTimer` вышло за рамки аддитивного.
 
-- [ ] **Шаг 8: Проверить в браузере**
+- [ ] **Шаг 12: Проверить в браузере**
 
 - удержание пробела, старт по отпусканию, остановка любой клавишей — как было;
 - во время счёта шапка, подвал и статистика гаснут, после остановки возвращаются;
@@ -1343,7 +1487,7 @@ npm run build
 - на 390 px скрамбл переносится, цифры таймера не обрезаются;
 - обе темы.
 
-- [ ] **Шаг 9: Коммит и PR**
+- [ ] **Шаг 13: Коммит и PR**
 
 ```bash
 git add src/components/timer src/app/timer/page.tsx src/app/globals.css cypress/e2e/timer.cy.ts
@@ -1360,8 +1504,9 @@ gh pr create --base main --title "Рабочий экран: скрамбл, т�
 
 **Файлы:**
 - Создать: `src/lib/solves.ts`, `src/lib/solves.test.ts`, `src/lib/sparkline.ts`,
-  `src/lib/sparkline.test.ts`, `src/components/dashboard/Sparkline.tsx`
-- Изменить: `src/app/stats/page.tsx`,
+  `src/lib/sparkline.test.ts`, `src/lib/format.test.ts`,
+  `src/components/dashboard/Sparkline.tsx`
+- Изменить: `src/app/stats/page.tsx`, `src/lib/format.ts`,
   `src/components/dashboard/StatisticsDashboard.tsx`,
   `src/components/timer/TimerWorkspace.tsx`, `src/app/timer/page.tsx`,
   `cypress/e2e/timer.cy.ts`
@@ -1374,6 +1519,7 @@ gh pr create --base main --title "Рабочий экран: скрамбл, т�
   - `getSolvesForUser(userId: string, limit?: number): Promise<SolveResult[]>`
   - `buildSparklinePoints(values: number[], width: number, height: number, padding?: number): SparklinePoint[]`
   - `toPolylinePoints(points: SparklinePoint[]): string`
+  - `averageHint(count: number, needed: number): string | null` из `src/lib/format.ts`
   - `Sparkline({ values: number[] })`
 
 `src/lib/statistics.ts` **не переписывается**: отбрасывание лучшего и худшего,
@@ -1608,7 +1754,58 @@ export default function Sparkline({ values }: { values: number[] }) {
 }
 ```
 
-- [ ] **Шаг 11: Перевести панель статистики на примитивы и график**
+- [ ] **Шаг 11: Написать падающий тест подсказки о нехватке сборок**
+
+Текст подсказки — чистая функция, и живёт она рядом с остальным форматированием
+для показа, а не внутри компонента: так её проверяет тест. Создать
+`src/lib/format.test.ts`:
+
+```ts
+import { averageHint } from "./format";
+
+describe("подсказка о нехватке сборок", () => {
+  it("молчит, когда сборок хватает", () => {
+    expect(averageHint(5, 5)).toBeNull();
+    expect(averageHint(12, 5)).toBeNull();
+  });
+
+  it("считает, сколько осталось до Ao5", () => {
+    expect(averageHint(0, 5)).toBe("ещё 5 до Ao5");
+    expect(averageHint(4, 5)).toBe("ещё 1 до Ao5");
+  });
+
+  it("работает и для Ao12", () => {
+    expect(averageHint(7, 12)).toBe("ещё 5 до Ao12");
+  });
+});
+```
+
+- [ ] **Шаг 12: Запустить тест и убедиться, что он падает**
+
+Запуск: `npx jest src/lib/format.test.ts`
+Ожидаемо: FAIL — `averageHint` из `./format` не экспортируется.
+
+- [ ] **Шаг 13: Реализовать подсказку**
+
+Дописать в `src/lib/format.ts`:
+
+```ts
+/**
+ * Сколько сборок не хватает до среднего. Не прочерк: прочерк ничего не
+ * объясняет, а человек должен видеть, сколько осталось.
+ */
+export function averageHint(count: number, needed: number): string | null {
+  if (count >= needed) return null;
+  return `ещё ${needed - count} до Ao${needed}`;
+}
+```
+
+- [ ] **Шаг 14: Запустить тест и убедиться, что он проходит**
+
+Запуск: `npx jest src/lib/format.test.ts`
+Ожидаемо: PASS, 3 теста.
+
+- [ ] **Шаг 15: Перевести панель статистики на примитивы и график**
 
 В `src/components/dashboard/StatisticsDashboard.tsx`:
 
@@ -1617,17 +1814,10 @@ export default function Sparkline({ values }: { values: number[] }) {
 - Ao5 и Ao12 — через `Stat` с `testId="ao5"` и `testId="ao12"`;
 - `+2` — через `Badge tone="warning"`, DNF — `text-danger`;
 - добавить `Sparkline` по эффективным временам сборок;
-- вместо прочерка при нехватке сборок показывать, сколько ещё нужно:
+- вместо прочерка при нехватке сборок показывать `averageHint(solves.length, 5)`
+  и `averageHint(solves.length, 12)` из `@/lib/format`.
 
-```tsx
-/** Не прочерк, а сколько ещё осталось: прочерк ничего не объясняет. */
-function averageHint(count: number, needed: number): string | null {
-  if (count >= needed) return null;
-  return `ещё ${needed - count} до Ao${needed}`;
-}
-```
-
-- [ ] **Шаг 12: Перевести страницу статистики на реальные данные**
+- [ ] **Шаг 16: Перевести страницу статистики на реальные данные**
 
 Полностью заменить `src/app/stats/page.tsx`:
 
@@ -1689,7 +1879,7 @@ export default async function StatsPage() {
 
 Выдуманный массив `mockSolves` удаляется целиком.
 
-- [ ] **Шаг 13: Подтянуть сохранённые сборки на рабочий экран**
+- [ ] **Шаг 17: Подтянуть сохранённые сборки на рабочий экран**
 
 `src/app/timer/page.tsx` начинает передавать историю:
 
@@ -1706,10 +1896,12 @@ export default async function TimerPage() {
 ```
 
 В `TimerWorkspace` добавить проп `initialSolves: SolveResult[]` и начинать с
-него: `useState<SolveResult[]>(initialSolves)`. Тогда Ao5 и Ao12 на рабочем
-экране считаются с учётом прошлых тренировок, а не с нуля.
+него: `useReducer(workspaceReducer, initialWorkspaceState(initialSolves))`.
+Тогда Ao5 и Ao12 на рабочем экране считаются с учётом прошлых тренировок, а не
+с нуля. Тест `initialWorkspaceState` на сохранение переданной истории уже есть
+в задаче 3 — отдельный писать не нужно.
 
-- [ ] **Шаг 14: Поправить сквозной сценарий**
+- [ ] **Шаг 18: Поправить сквозной сценарий**
 
 Анонимный посетитель больше не видит ни выдуманных средних, ни списка: на
 `/stats` его встречает приглашение войти. Дописать в `cypress/e2e/timer.cy.ts`:
@@ -1726,7 +1918,7 @@ export default async function TimerPage() {
 сценарии — это отдельная работа, в объём редизайна она не входит. Записать её
 в `TECHDEBT.md` как осознанно отложенную.
 
-- [ ] **Шаг 15: Прогнать проверки**
+- [ ] **Шаг 19: Прогнать проверки**
 
 ```bash
 npm run lint
@@ -1736,7 +1928,7 @@ npm run test:e2e
 npm run build
 ```
 
-- [ ] **Шаг 16: Проверить в браузере**
+- [ ] **Шаг 20: Проверить в браузере**
 
 Три пустых состояния проверяются отдельно, и ни одно не должно быть пустым
 списком:
@@ -1748,7 +1940,7 @@ npm run build
 
 Обе темы, 390 px.
 
-- [ ] **Шаг 17: Коммит и PR**
+- [ ] **Шаг 21: Коммит и PR**
 
 ```bash
 git add src/lib src/components/dashboard src/app/stats/page.tsx src/app/timer/page.tsx src/components/timer/TimerWorkspace.tsx cypress/e2e/timer.cy.ts
@@ -2177,6 +2369,13 @@ merge-коммитом. `--admin` не использовать.
 
 1. **Сквозной сценарий не проверяет Ao5 на реальной базе.** Для этого нужен
    посеянный пользователь и вход внутри сценария. Записать в `TECHDEBT.md`.
+2. **Связка «скрамбл на момент сохранения» проверяется только глазами.**
+   `saveSolve` должна получить скрамбл, который был на экране до автосмены, а не
+   следующий. Это свойство таймингов ref'ов: чистой функцией не выражается,
+   сквозным сценарием не проверяется (в базу он не смотрит). Закрыть его можно
+   было бы тестом компонента с подменой `saveSolve`, но это библиотека рендера
+   компонентов и переделка `testEnvironment` ради одного теста — размен
+   невыгодный. Записано в `TECHDEBT.md` пунктом 10.
 2. **Страница `/styleguide` остаётся в сборке.** Она не ведёт из навигации, но
    доступна по прямой ссылке и служит справкой по токенам. Если владелец
    захочет убрать её из продакшена — это отдельная правка.
