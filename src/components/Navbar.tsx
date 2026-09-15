@@ -2,17 +2,18 @@
 
 import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
+import ThemeToggle from "./ThemeToggle";
 
 export default function Navbar() {
   const { data: session } = useSession();
 
   return (
     <nav className="border-b bg-white">
-      <div className="mx-auto flex max-w-7xl items-center justify-between p-4">
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 p-4">
         <Link href="/" className="text-xl font-bold text-indigo-600">
           RubikPlatform
         </Link>
-        <div className="flex items-center space-x-4 text-sm font-medium">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm font-medium">
           {session?.user ? (
             <>
               <Link href="/profile" className="text-gray-600 hover:text-indigo-600">
@@ -38,6 +39,7 @@ export default function Navbar() {
               </Link>
             </>
           )}
+          <ThemeToggle />
         </div>
       </div>
     </nav>
