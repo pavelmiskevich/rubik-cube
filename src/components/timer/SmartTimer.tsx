@@ -3,8 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { saveSolve } from "@/actions/timer";
 import { formatSolveTime } from "@/lib/format";
+import type { TimerState } from "./workspaceState";
 
-type TimerState = "IDLE" | "READY" | "RUNNING" | "STOPPED";
+/*
+  Тип живёт в чистом модуле, чтобы тест редьюсера не тянул за собой клиентский
+  компонент с JSX. Реэкспорт — чтобы существующие импорты не ломались.
+*/
+export type { TimerState } from "./workspaceState";
 
 const INITIAL_DISPLAY = formatSolveTime(0);
 
@@ -13,9 +18,18 @@ interface SmartTimerProps {
   scramble?: string;
   /** Solves are only persisted for a signed-in user; used to explain that up front. */
   canSave?: boolean;
+  /** Состояние машины таймера — по нему включается режим фокуса. */
+  onStateChange?: (state: TimerState) => void;
+  /** Завершённая сборка в миллисекундах, до применения штрафов. */
+  onSolve?: (timeMs: number) => void;
 }
 
-export default function SmartTimer({ scramble = "", canSave = true }: SmartTimerProps) {
+export default function SmartTimer({
+  scramble = "",
+  canSave = true,
+  onStateChange,
+  onSolve,
+}: SmartTimerProps) {
   const [timerState, setTimerState] = useState<TimerState>("IDLE");
   const [saveError, setSaveError] = useState<string | null>(null);
   const timeDisplayRef = useRef<HTMLDivElement>(null);
@@ -27,9 +41,20 @@ export default function SmartTimer({ scramble = "", canSave = true }: SmartTimer
   const startTimeRef = useRef<number>(0);
   const rafRef = useRef<number | null>(null);
 
+  // Колбэки держим в ref — так же, как scramble. Сознательно: положи их в
+  // зависимости setState и stopTimer, и при каждом рендере родителя
+  // пересобрались бы все обработчики, поведение которых закреплено 29 тестами.
+  const onStateChangeRef = useRef(onStateChange);
+  const onSolveRef = useRef(onSolve);
+
   useEffect(() => {
     scrambleRef.current = scramble;
   }, [scramble]);
+
+  useEffect(() => {
+    onStateChangeRef.current = onStateChange;
+    onSolveRef.current = onSolve;
+  }, [onStateChange, onSolve]);
 
   // The running time is written straight to the DOM: re-rendering React 60
   // times a second to move two digits is wasted work.
@@ -42,6 +67,7 @@ export default function SmartTimer({ scramble = "", canSave = true }: SmartTimer
   const setState = useCallback((next: TimerState) => {
     stateRef.current = next;
     setTimerState(next);
+    onStateChangeRef.current?.(next);
   }, []);
 
   const arm = useCallback(() => {
@@ -71,6 +97,9 @@ export default function SmartTimer({ scramble = "", canSave = true }: SmartTimer
     const elapsed = performance.now() - startTimeRef.current;
     setState("STOPPED");
     updateDisplay(elapsed);
+
+    // До проверки canSave: живые средние нужны и тому, кто не вошёл.
+    onSolveRef.current?.(Math.round(elapsed));
 
     if (!canSave) return;
 
@@ -164,11 +193,11 @@ export default function SmartTimer({ scramble = "", canSave = true }: SmartTimer
       >
         {INITIAL_DISPLAY}
       </div>
-      <p className="mt-8 text-sm text-muted">
+      <p data-chrome className="mt-8 text-sm text-muted">
         Удерживайте пробел или экран для старта. Любая кнопка/тап для остановки.
       </p>
       {!canSave && (
-        <p className="mt-2 text-sm text-muted">
+        <p data-chrome className="mt-2 text-sm text-muted">
           Результаты сохраняются только для вошедших пользователей.
         </p>
       )}
