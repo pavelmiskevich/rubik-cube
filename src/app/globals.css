@@ -68,6 +68,16 @@ body {
   }
 }
 
+/* Пока таймер идёт, обвязка гаснет; возвращается при остановке. */
+[data-chrome] {
+  transition: opacity 150ms ease;
+}
+
+[data-focus="on"] [data-chrome] {
+  opacity: 0;
+  pointer-events: none;
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;

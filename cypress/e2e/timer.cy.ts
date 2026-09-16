@@ -1,11 +1,27 @@
 /**
- * Selectors here are data-testid only. The first version of this spec matched
- * on Tailwind classes (`div.font-mono`), which selects several elements per
- * page and breaks the moment someone restyles a component.
+ * Селекторы — только data-testid. Первая версия цеплялась за классы Tailwind
+ * (`div.font-mono`), выбирала несколько элементов и ломалась от любой правки
+ * оформления.
  */
-describe("Основной поток", () => {
-  it("генерирует скрамбл, засекает время и показывает статистику", () => {
-    cy.visit("/");
+describe("Рабочий экран", () => {
+  const timer = () => cy.get('[data-testid="timer"]');
+  const display = () => cy.get('[data-testid="timer-display"]');
+
+  /** Одна сборка: удержать пробел, отпустить, дать часам идти, остановить. */
+  function solveOnce() {
+    cy.get("body").trigger("keydown", { code: "Space" });
+    timer().should("have.attr", "data-state", "READY");
+    cy.get("body").trigger("keyup", { code: "Space" });
+    timer().should("have.attr", "data-state", "RUNNING");
+    cy.wait(150);
+    cy.get("body").trigger("keydown", { code: "Space" });
+    timer().should("have.attr", "data-state", "STOPPED");
+    cy.get("body").trigger("keyup", { code: "Space" });
+    timer().should("have.attr", "data-state", "IDLE");
+  }
+
+  it("выдаёт скрамбл, засекает время и считает средние", () => {
+    cy.visit("/timer");
 
     cy.get('[data-testid="scramble"]')
       .should("not.have.text", "Генерация...")
@@ -20,36 +36,38 @@ describe("Основной поток", () => {
           });
       });
 
-    cy.contains("a", "Таймер").click();
-    cy.url().should("include", "/timer");
-
-    const timer = () => cy.get('[data-testid="timer"]');
-    const display = () => cy.get('[data-testid="timer-display"]');
-
     timer().should("have.attr", "data-state", "IDLE");
+    cy.get('[data-testid="ao5"]').should("have.text", "-");
 
-    // Hold space to arm, release to start.
-    cy.get("body").trigger("keydown", { code: "Space" });
-    timer().should("have.attr", "data-state", "READY");
-    display().should("have.text", "0.00");
-
-    cy.get("body").trigger("keyup", { code: "Space" });
-    timer().should("have.attr", "data-state", "RUNNING");
-
-    // Let the clock actually advance before stopping it.
-    cy.wait(500);
-    cy.get("body").trigger("keydown", { code: "Space" });
-
-    timer().should("have.attr", "data-state", "STOPPED");
-    display()
+    // Скрамбл должен смениться сам после сборки.
+    cy.get('[data-testid="scramble"]')
       .invoke("text")
-      .should((text) => {
-        expect(parseFloat(text)).to.be.greaterThan(0);
+      .then((before) => {
+        solveOnce();
+        display()
+          .invoke("text")
+          .should((text) => {
+            expect(Number.parseFloat(text)).to.be.greaterThan(0);
+          });
+        cy.get('[data-testid="scramble"]')
+          .invoke("text")
+          .should((after) => {
+            expect(after).to.not.equal(before);
+          });
       });
 
-    cy.visit("/stats");
-    cy.contains("h2", "Статистика").should("be.visible");
+    cy.get('[data-testid="solve-list"] li').should("have.length", 1);
+
+    // Ao5 появляется ровно на пятой сборке, не раньше.
+    for (let i = 0; i < 3; i++) {
+      solveOnce();
+    }
+    cy.get('[data-testid="solve-list"] li').should("have.length", 4);
+    cy.get('[data-testid="ao5"]').should("have.text", "-");
+
+    solveOnce();
+    cy.get('[data-testid="solve-list"] li').should("have.length", 5);
     cy.get('[data-testid="ao5"]').should("not.have.text", "-");
-    cy.get('[data-testid="solve-list"] li').should("have.length.greaterThan", 0);
+    cy.get('[data-testid="ao12"]').should("have.text", "-");
   });
 });

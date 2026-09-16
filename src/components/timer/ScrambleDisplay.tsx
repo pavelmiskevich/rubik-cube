@@ -7,9 +7,14 @@ import Button from "@/components/ui/Button";
 interface ScrambleDisplayProps {
   /** Notified with every scramble, so a timer can record the one being solved. */
   onChange?: (scramble: string) => void;
+  /** Меняется — выдаётся новый скрамбл. */
+  refreshToken?: number;
 }
 
-export default function ScrambleDisplay({ onChange }: ScrambleDisplayProps) {
+export default function ScrambleDisplay({
+  onChange,
+  refreshToken,
+}: ScrambleDisplayProps) {
   // The scramble is random, so it cannot be produced during render: the server
   // and the client would disagree and hydration would fail. It is generated
   // once the component is mounted on the client instead.
@@ -28,10 +33,12 @@ export default function ScrambleDisplay({ onChange }: ScrambleDisplayProps) {
     // freeze one scramble into the static HTML for every visitor.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     regenerate();
-  }, [regenerate]);
+  }, [regenerate, refreshToken]);
 
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-4 text-center">
+    /* data-chrome: во время замера на экране не остаётся ничего, кроме цифр —
+       скрамбл к этому моменту уже не нужен. */
+    <div data-chrome className="mx-auto w-full max-w-2xl space-y-4 text-center">
       <div
         data-testid="scramble"
         aria-live="polite"
