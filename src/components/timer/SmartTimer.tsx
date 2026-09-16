@@ -144,9 +144,9 @@ export default function SmartTimer({ scramble = "", canSave = true }: SmartTimer
     }
   };
 
-  let colorClass = "text-gray-800";
-  if (timerState === "READY") colorClass = "text-green-500";
-  else if (timerState === "STOPPED") colorClass = "text-gray-600";
+  let colorClass = "text-text";
+  if (timerState === "READY") colorClass = "text-success";
+  else if (timerState === "STOPPED") colorClass = "text-muted";
 
   return (
     <div
@@ -160,20 +160,20 @@ export default function SmartTimer({ scramble = "", canSave = true }: SmartTimer
       <div
         ref={timeDisplayRef}
         data-testid="timer-display"
-        className={`text-8xl md:text-9xl font-mono font-bold tracking-tighter ${colorClass}`}
+        className={`font-mono text-8xl font-bold tabular-nums tracking-tighter md:text-9xl ${colorClass}`}
       >
         {INITIAL_DISPLAY}
       </div>
-      <p className="mt-8 text-gray-500 text-sm">
+      <p className="mt-8 text-sm text-muted">
         Удерживайте пробел или экран для старта. Любая кнопка/тап для остановки.
       </p>
       {!canSave && (
-        <p className="mt-2 text-sm text-gray-500">
+        <p className="mt-2 text-sm text-muted">
           Результаты сохраняются только для вошедших пользователей.
         </p>
       )}
       {saveError && (
-        <p className="mt-2 text-sm text-red-600" role="alert">
+        <p className="mt-2 text-sm text-danger" role="alert">
           {saveError}
         </p>
       )}

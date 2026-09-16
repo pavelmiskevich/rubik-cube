@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { generateScramble } from "@/lib/scrambler";
+import Button from "@/components/ui/Button";
 
 interface ScrambleDisplayProps {
   /** Notified with every scramble, so a timer can record the one being solved. */
@@ -30,23 +31,25 @@ export default function ScrambleDisplay({ onChange }: ScrambleDisplayProps) {
   }, [regenerate]);
 
   return (
-    <div className="w-full max-w-2xl mx-auto text-center p-4">
+    <div className="mx-auto w-full max-w-2xl space-y-4 text-center">
       <div
         data-testid="scramble"
         aria-live="polite"
         aria-label="Скрамбл"
-        className="text-2xl font-mono tracking-wider text-gray-800 bg-gray-100 p-4 rounded-lg shadow-inner"
+        /* Длинный скрамбл на узком экране должен переноситься, а не растягивать
+           страницу. */
+        className="break-words rounded-card border bg-surface-2 p-4 font-mono text-xl tracking-wider"
       >
         {scramble || "Генерация..."}
       </div>
-      <button
+      <Button
         type="button"
+        variant="secondary"
         onClick={regenerate}
         data-testid="new-scramble"
-        className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
       >
         Новый скрамбл
-      </button>
+      </Button>
     </div>
   );
 }

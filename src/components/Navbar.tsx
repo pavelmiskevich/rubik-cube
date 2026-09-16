@@ -3,39 +3,38 @@
 import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
 import ThemeToggle from "./ThemeToggle";
+import Button from "./ui/Button";
 
 export default function Navbar() {
   const { data: session } = useSession();
 
   return (
-    <nav className="border-b bg-white">
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 p-4">
-        <Link href="/" className="text-xl font-bold text-indigo-600">
+    /* data-chrome — по нему задача 3 гасит обвязку во время замера. */
+    <nav data-chrome className="sticky top-0 z-10 border-b bg-bg">
+      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-4">
+        <Link href="/" className="text-xl font-bold text-accent-text">
           RubikPlatform
         </Link>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm font-medium">
           {session?.user ? (
             <>
-              <Link href="/profile" className="text-gray-600 hover:text-indigo-600">
+              <Link href="/profile" className="text-muted hover:text-text">
                 Профиль
               </Link>
-              <button 
-                onClick={() => signOut()} 
-                className="text-red-600 hover:text-red-500"
+              <button
+                onClick={() => signOut()}
+                className="text-danger hover:opacity-80"
               >
                 Выйти
               </button>
             </>
           ) : (
             <>
-              <Link href="/login" className="text-gray-600 hover:text-indigo-600">
+              <Link href="/login" className="text-muted hover:text-text">
                 Войти
               </Link>
-              <Link
-                href="/register"
-                className="rounded-md bg-indigo-600 px-3 py-1.5 text-white hover:bg-indigo-500"
-              >
-                Регистрация
+              <Link href="/register">
+                <Button>Регистрация</Button>
               </Link>
             </>
           )}
