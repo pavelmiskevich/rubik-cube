@@ -21,7 +21,13 @@ export default function Button({
 }: ButtonProps) {
   return (
     <button
-      className={`inline-flex items-center justify-center rounded-control px-4 py-2 text-sm font-semibold transition-opacity disabled:opacity-50 ${VARIANTS[variant]} ${className}`}
+      /*
+        Отключённая кнопка гасится в нейтральный, а не в акцент под прозрачностью:
+        приглушённый акцент продолжает читаться как «главное действие», что для
+        непрожимаемой кнопки ровно неверный сигнал. Вариант disabled: перебивает
+        заливку варианта по специфичности (класс + псевдокласс).
+      */
+      className={`inline-flex items-center justify-center rounded-control px-4 py-2 text-sm font-semibold transition-opacity disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-muted disabled:hover:opacity-100 ${VARIANTS[variant]} ${className}`}
       {...rest}
     />
   );
