@@ -1,4 +1,10 @@
 import type { Metadata } from "next";
+import Badge from "@/components/ui/Badge";
+import Button from "@/components/ui/Button";
+import Card from "@/components/ui/Card";
+import EmptyState from "@/components/ui/EmptyState";
+import Field from "@/components/ui/Field";
+import Stat from "@/components/ui/Stat";
 
 export const metadata: Metadata = {
   title: "Оформление | RubikPlatform",
@@ -16,7 +22,7 @@ const SWATCHES = [
 
 export default function StyleguidePage() {
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-12 px-4 py-10">
+    <div className="space-y-12">
       <header className="space-y-2">
         <h1 className="text-3xl font-bold">Оформление платформы</h1>
         <p className="text-muted">
@@ -52,11 +58,61 @@ export default function StyleguidePage() {
       </section>
 
       <section className="space-y-4">
+        <h2 className="text-xl font-semibold">Кнопки</h2>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button>Основная</Button>
+          <Button variant="secondary">Второстепенная</Button>
+          <Button variant="ghost">Призрачная</Button>
+          <Button variant="danger">Опасная</Button>
+          <Button disabled>Недоступна</Button>
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="text-xl font-semibold">Поля формы</h2>
+        <div className="max-w-md space-y-4">
+          <Field label="Электронная почта" name="demo-email" type="email" />
+          <Field
+            label="Пароль"
+            name="demo-password"
+            type="password"
+            placeholder="Не менее 6 символов"
+          />
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="text-xl font-semibold">Метки</h2>
+        <div className="flex flex-wrap items-center gap-3">
+          <Badge>Обычная</Badge>
+          <Badge tone="warning">+2</Badge>
+          <Badge tone="danger">DNF</Badge>
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="text-xl font-semibold">Показатели</h2>
+        <div className="grid grid-cols-2 gap-4 sm:max-w-md">
+          <Stat label="Ao5" value="11.24" />
+          <Stat label="Ao12" value="-" />
+        </div>
+      </section>
+
+      <section className="space-y-4">
         <h2 className="text-xl font-semibold">Поверхности</h2>
-        <div className="rounded-card border bg-surface p-6">
+        <Card>
           <h3 className="font-semibold">Карточка</h3>
           <p className="text-muted">Поверхность, рамка и радиус из токенов.</p>
-        </div>
+        </Card>
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="text-xl font-semibold">Пустое состояние</h2>
+        <EmptyState
+          title="Пока ни одной сборки"
+          description="Засеките первую сборку на рабочем экране — средние начнут считаться сами."
+          action={<Button>Начать тренировку</Button>}
+        />
       </section>
     </div>
   );

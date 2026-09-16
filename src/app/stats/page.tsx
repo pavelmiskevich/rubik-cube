@@ -5,16 +5,16 @@ export const metadata = {
 };
 
 export default function StatsPage() {
-  // Dummy data for demonstration since we are not hooked up to a real user session in this PR context
+  // Демо-данные: на реальные сборки пользователя страницу переводит #21.
   const mockSolves = [
     { timeMs: 12450 },
     { timeMs: 11200 },
-    { timeMs: 13000, isPlusTwo: true }, // 15000
+    { timeMs: 13000, isPlusTwo: true },
     { timeMs: 9800 },
     { timeMs: 14500 },
     { timeMs: 11000 },
     { timeMs: 10500 },
-    { timeMs: 9000, isDNF: true },      // DNF
+    { timeMs: 9000, isDNF: true },
     { timeMs: 11100 },
     { timeMs: 10200 },
     { timeMs: 12300 },
@@ -22,8 +22,8 @@ export default function StatsPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-7xl p-4 min-h-[calc(100vh-4rem)]">
-      <h1 className="text-3xl font-bold mb-8 text-center">Ваша статистика (Демо)</h1>
+    <div className="space-y-8">
+      <h1 className="text-3xl font-bold">Статистика (демо)</h1>
       <StatisticsDashboard solves={mockSolves} />
     </div>
   );
