@@ -10,14 +10,52 @@ import {
   useState,
 } from "react";
 import { Canvas, ThreeEvent } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
+import {
+  ContactShadows,
+  Environment,
+  Lightformer,
+  OrbitControls,
+} from "@react-three/drei";
 import * as THREE from "three";
 import { Axis, resolveDragRotation } from "./dragRotation";
+import { BODY_COLOR, STICKER_COLORS } from "./cubeTheme";
 
-// Sticker colours in BoxGeometry material order: right, left, top, bottom, front, back.
-const COLORS = ["#B90000", "#FF5900", "#FFFFFF", "#FFD500", "#009B48", "#0045AD"];
+const CUBIE_SIZE = 0.98;
+const CORNER_RADIUS = 0.12;
+const STICKER_SIZE = 0.76;
 
-const CUBIE_SIZE = 0.95;
+/**
+ * Стикер стоит чуть НАД поверхностью корпуса, а не под ней: полуразмер корпуса
+ * равен CUBIE_SIZE / 2, и плоскость, опущенная внутрь, была бы просто закрыта
+ * корпусом. Зазор в две тысячных снимает z-fighting. Визуальная «утопленность»
+ * из спеки достигается другим: стикер меньше грани, и тёмный корпус его
+ * обрамляет.
+ */
+const STICKER_OFFSET = CUBIE_SIZE / 2 + 0.002;
+
+/**
+ * Порядок совпадает с STICKER_COLORS: +X, -X, +Y, -Y, +Z, -Z.
+ *
+ * Тип выписан явно, а не выведен через `as const`. С `as const` у каждого
+ * элемента rotation получал собственный литеральный тип, face внутри forEach
+ * становился объединением шести типов, и spread такого объединения в
+ * set(x, y, z) TypeScript не принимает.
+ */
+type StickerFace = {
+  axis: "x" | "y" | "z";
+  sign: 1 | -1;
+  rotation: [number, number, number];
+};
+
+const STICKER_FACES: StickerFace[] = [
+  { axis: "x", sign: 1, rotation: [0, Math.PI / 2, 0] },
+  { axis: "x", sign: -1, rotation: [0, -Math.PI / 2, 0] },
+  { axis: "y", sign: 1, rotation: [-Math.PI / 2, 0, 0] },
+  { axis: "y", sign: -1, rotation: [Math.PI / 2, 0, 0] },
+  { axis: "z", sign: 1, rotation: [0, 0, 0] },
+  { axis: "z", sign: -1, rotation: [0, Math.PI, 0] },
+];
+
 const DRAG_THRESHOLD = 0.2;
 const DEFAULT_DURATION = 300;
 
@@ -30,22 +68,57 @@ export interface RubiksCubeRef {
   rotateSlice: (axis: Axis, index: number, direction: number, duration?: number) => Promise<void>;
 }
 
-/** Geometry and the seven materials, created once per mount and disposed with it. */
+/**
+ * Скруглённый кубик: рецепт RoundedBox из drei, воспроизведённый вручную.
+ * Вручную — потому что drei отдаёт RoundedBoxGeometry как JSX-компонент, а
+ * кубики здесь собираются императивно через new THREE.Mesh; брать же класс из
+ * three-stdlib нельзя — она в дереве только транзитивно, в package.json её нет.
+ */
+function createRoundedCubieGeometry(size: number, radius: number): THREE.ExtrudeGeometry {
+  const eps = 0.00001;
+  const inner = radius - eps;
+  const shape = new THREE.Shape();
+  shape.absarc(eps, eps, eps, -Math.PI / 2, -Math.PI, true);
+  shape.absarc(eps, size - inner * 2, eps, Math.PI, Math.PI / 2, true);
+  shape.absarc(size - inner * 2, size - inner * 2, eps, Math.PI / 2, 0, true);
+  shape.absarc(size - inner * 2, eps, eps, 0, -Math.PI / 2, true);
+
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth: size - radius * 2,
+    bevelEnabled: true,
+    bevelSegments: 6,
+    steps: 1,
+    bevelSize: inner,
+    bevelThickness: radius,
+    curveSegments: 4,
+  });
+  geometry.center();
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+/** Геометрии и материалы, созданные один раз на монтирование и освобождаемые с ним. */
 function useCubeResources() {
   const resources = useMemo(() => {
-    const geometry = new THREE.BoxGeometry(CUBIE_SIZE, CUBIE_SIZE, CUBIE_SIZE);
-    const stickers = COLORS.map(
-      (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.1, metalness: 0.1 })
+    const body = createRoundedCubieGeometry(CUBIE_SIZE, CORNER_RADIUS);
+    const sticker = new THREE.PlaneGeometry(STICKER_SIZE, STICKER_SIZE);
+    const stickerMaterials = STICKER_COLORS.map(
+      (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0.05 })
     );
-    const inner = new THREE.MeshStandardMaterial({ color: "#222222", roughness: 1.0 });
-    return { geometry, stickers, inner };
+    const bodyMaterial = new THREE.MeshStandardMaterial({
+      color: BODY_COLOR,
+      roughness: 0.65,
+      metalness: 0.1,
+    });
+    return { body, sticker, stickerMaterials, bodyMaterial };
   }, []);
 
   useEffect(() => {
     return () => {
-      resources.geometry.dispose();
-      resources.stickers.forEach((material) => material.dispose());
-      resources.inner.dispose();
+      resources.body.dispose();
+      resources.sticker.dispose();
+      resources.stickerMaterials.forEach((material) => material.dispose());
+      resources.bodyMaterial.dispose();
     };
   }, [resources]);
 
@@ -71,19 +144,7 @@ const CubeCore = forwardRef<
     mesh: THREE.Mesh;
   } | null>(null);
 
-  const { geometry, stickers, inner } = useCubeResources();
-
-  const materialsFor = useCallback(
-    (x: number, y: number, z: number) => [
-      x === 1 ? stickers[0] : inner, // right
-      x === -1 ? stickers[1] : inner, // left
-      y === 1 ? stickers[2] : inner, // top
-      y === -1 ? stickers[3] : inner, // bottom
-      z === 1 ? stickers[4] : inner, // front
-      z === -1 ? stickers[5] : inner, // back
-    ],
-    [stickers, inner]
-  );
+  const { body, sticker, stickerMaterials, bodyMaterial } = useCubeResources();
 
   // Build the 27 cubies once the group exists.
   useEffect(() => {
@@ -96,11 +157,27 @@ const CubeCore = forwardRef<
     for (let x = -1; x <= 1; x++) {
       for (let y = -1; y <= 1; y++) {
         for (let z = -1; z <= 1; z++) {
-          const mesh = new THREE.Mesh(geometry, materialsFor(x, y, z));
-          mesh.position.set(x, y, z);
-          mesh.userData = { logicalPosition: new THREE.Vector3(x, y, z) };
-          cubiesRef.current.push(mesh);
-          group.add(mesh);
+          const cubie = new THREE.Mesh(body, bodyMaterial);
+          cubie.position.set(x, y, z);
+          cubie.userData = { logicalPosition: new THREE.Vector3(x, y, z) };
+
+          // Корпус не ловит луч. У скруглённой геометрии нормали на фаске не
+          // осевые, и округление дало бы неверную ось поворота. Интерактивны
+          // только стикеры: у плоскости нормаль всегда осевая, поэтому контракт
+          // resolveDragRotation сохраняется без единой правки.
+          cubie.raycast = () => null;
+
+          const coords = { x, y, z };
+          STICKER_FACES.forEach((face, index) => {
+            if (coords[face.axis] !== face.sign) return;
+            const plane = new THREE.Mesh(sticker, stickerMaterials[index]);
+            plane.rotation.set(...face.rotation);
+            plane.position[face.axis] = face.sign * STICKER_OFFSET;
+            cubie.add(plane);
+          });
+
+          cubiesRef.current.push(cubie);
+          group.add(cubie);
         }
       }
     }
@@ -109,7 +186,7 @@ const CubeCore = forwardRef<
       group.clear();
       cubiesRef.current = [];
     };
-  }, [geometry, materialsFor]);
+  }, [body, bodyMaterial, sticker, stickerMaterials]);
 
   // Any in-flight animation and every queued rotation must settle on unmount,
   // otherwise their callers await a promise that can never resolve.
@@ -252,12 +329,18 @@ const CubeCore = forwardRef<
     if (animating.current) return;
 
     setOrbitEnabled(false);
+
+    // Луч попадает только в стикер — корпус его не ловит. Кубик берём как
+    // родителя стикера: дальше mesh нужен лишь для getWorldPosition(origin).
+    const stickerMesh = event.object as THREE.Mesh;
+    const cubie = (stickerMesh.parent ?? stickerMesh) as THREE.Mesh;
+
     dragStart.current = {
       point: event.point.clone(),
       normal:
-        event.face?.normal?.clone().transformDirection(event.object.matrixWorld).round() ??
+        event.face?.normal?.clone().transformDirection(stickerMesh.matrixWorld).round() ??
         new THREE.Vector3(),
-      mesh: event.object as THREE.Mesh,
+      mesh: cubie,
     };
   };
 
@@ -316,10 +399,24 @@ const RubiksCube = forwardRef<RubiksCubeRef, RubiksCubeProps>(({ onRotateEnd }, 
 
   return (
     <div className="w-full h-full min-h-[400px] touch-none">
-      <Canvas camera={{ position: [5, 5, 5], fov: 45 }}>
-        <ambientLight intensity={0.7} />
-        <directionalLight position={[10, 10, 10]} intensity={1.5} />
+      <Canvas
+        camera={{ position: [5, 5, 5], fov: 45 }}
+        gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
+      >
+        <ambientLight intensity={0.5} />
+        <directionalLight position={[10, 10, 10]} intensity={1.2} />
         <CubeCore ref={ref} onRotateEnd={onRotateEnd} setOrbitEnabled={setOrbitEnabled} />
+        {/*
+          Окружение собирается из источников прямо здесь. Пресеты (preset="...")
+          использовать нельзя: drei скачивает для них HDRI с raw.githack.com в
+          рантайме — это внешняя зависимость, которой в спеке нет. С детьми и без
+          preset/files загрузчик не вызывается вовсе.
+        */}
+        <Environment resolution={128}>
+          <Lightformer form="rect" intensity={2} position={[0, 4, 2]} scale={6} />
+          <Lightformer form="rect" intensity={1} position={[-4, 1, 2]} scale={4} />
+        </Environment>
+        <ContactShadows position={[0, -1.7, 0]} opacity={0.45} blur={2.4} far={4} />
         <OrbitControls enablePan={false} enableZoom enabled={orbitEnabled} />
       </Canvas>
     </div>
