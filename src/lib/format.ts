@@ -18,3 +18,12 @@ export function formatSolveTime(ms: number | null): string {
   }
   return `${seconds}.${fraction}`;
 }
+
+/**
+ * Сколько сборок не хватает до среднего. Не прочерк: прочерк ничего не
+ * объясняет, а человек должен видеть, сколько осталось.
+ */
+export function averageHint(count: number, needed: number): string | null {
+  if (count >= needed) return null;
+  return `ещё ${needed - count} до Ao${needed}`;
+}
