@@ -70,4 +70,10 @@ describe("Рабочий экран", () => {
     cy.get('[data-testid="ao5"]').should("not.have.text", "-");
     cy.get('[data-testid="ao12"]').should("have.text", "-");
   });
+
+  it("не показывает чужую статистику тому, кто не вошёл", () => {
+    cy.visit("/stats");
+    cy.contains("Статистика появится после входа").should("be.visible");
+    cy.contains("a", "Войти").should("have.attr", "href", "/login");
+  });
 });

@@ -11,10 +11,17 @@ import {
 import Badge from "@/components/ui/Badge";
 import Stat from "@/components/ui/Stat";
 import { formatSolveTime } from "@/lib/format";
-import { calculateAo5, calculateAo12, effectiveTime } from "@/lib/statistics";
+import {
+  calculateAo5,
+  calculateAo12,
+  effectiveTime,
+  type SolveResult,
+} from "@/lib/statistics";
 
 interface TimerWorkspaceProps {
   canSave: boolean;
+  /** История из базы: средние считаются с учётом прошлых тренировок. */
+  initialSolves?: SolveResult[];
 }
 
 /**
@@ -22,9 +29,16 @@ interface TimerWorkspaceProps {
  * живые средние и последние сборки под ним. Правила переходов живут в
  * workspaceState.ts и покрыты тестами; здесь остаётся только отрисовка.
  */
-export default function TimerWorkspace({ canSave }: TimerWorkspaceProps) {
+export default function TimerWorkspace({
+  canSave,
+  initialSolves = [],
+}: TimerWorkspaceProps) {
   const [scramble, setScramble] = useState("");
-  const [state, dispatch] = useReducer(workspaceReducer, initialWorkspaceState([]));
+  const [state, dispatch] = useReducer(
+    workspaceReducer,
+    initialSolves,
+    initialWorkspaceState
+  );
 
   const handleStateChange = useCallback((timerState: TimerState) => {
     // saveSolve читает свой scrambleRef синхронно, ещё до того как это

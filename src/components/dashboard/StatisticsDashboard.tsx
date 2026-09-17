@@ -1,6 +1,7 @@
 import Badge from "@/components/ui/Badge";
 import Stat from "@/components/ui/Stat";
-import { formatSolveTime } from "@/lib/format";
+import Sparkline from "./Sparkline";
+import { averageHint, formatSolveTime } from "@/lib/format";
 import { calculateAo5, calculateAo12, effectiveTime, SolveResult } from "@/lib/statistics";
 
 interface StatisticsDashboardProps {
@@ -13,12 +14,33 @@ export default function StatisticsDashboard({ solves }: StatisticsDashboardProps
   const ao12 = calculateAo12(solves);
   const recent = solves.map((solve, index) => ({ solve, number: index + 1 })).reverse();
 
+  // DNF приходит как Infinity — спарклайн его пропускает, не разрывая линию.
+  const progress = solves.map(effectiveTime);
+  const hasProgressLine = progress.filter((value) => Number.isFinite(value)).length > 1;
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-4">
-        <Stat label="Ao5" value={formatSolveTime(ao5)} testId="ao5" />
-        <Stat label="Ao12" value={formatSolveTime(ao12)} testId="ao12" />
+        <Stat
+          label="Ao5"
+          value={formatSolveTime(ao5)}
+          hint={averageHint(solves.length, 5)}
+          testId="ao5"
+        />
+        <Stat
+          label="Ao12"
+          value={formatSolveTime(ao12)}
+          hint={averageHint(solves.length, 12)}
+          testId="ao12"
+        />
       </div>
+
+      {hasProgressLine && (
+        <div className="rounded-card border bg-surface p-4">
+          <h2 className="mb-3 text-sm font-semibold">Прогресс</h2>
+          <Sparkline values={progress} />
+        </div>
+      )}
 
       <div className="rounded-card border bg-surface">
         <h2 className="border-b px-4 py-3 text-sm font-semibold">
