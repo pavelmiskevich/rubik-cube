@@ -35,9 +35,19 @@ export default function Home() {
           <p className="text-lg text-muted">
             Скрамблы по правилам WCA, таймер и 3D-тренажёр на одной странице.
           </p>
-          <Link href="/timer" className="inline-block">
-            <Button className="px-6 py-3 text-base">Начать тренировку</Button>
-          </Link>
+          {/* Первым идёт вход для новичка; замер времени — для тех, кто уже умеет. */}
+          <div className="flex flex-wrap gap-3">
+            <Link href="/learn" className="inline-block">
+              <Button className="px-6 py-3 text-base">
+                Научиться собирать
+              </Button>
+            </Link>
+            <Link href="/timer" className="inline-block">
+              <Button variant="secondary" className="px-6 py-3 text-base">
+                Начать тренировку
+              </Button>
+            </Link>
+          </div>
         </div>
         <CubeHero />
       </section>
