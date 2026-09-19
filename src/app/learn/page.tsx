@@ -1,32 +1,15 @@
 import Link from "next/link";
 import Card from "@/components/ui/Card";
+import { LESSONS } from "@/content/lessons";
 
 export const metadata = {
   title: "Учиться | RubikPlatform",
 };
 
-const AVAILABLE = [
-  {
-    href: "/trainer",
-    title: "3D-тренажёр",
-    text: "Покрутить куб в браузере и привыкнуть к поворотам слоёв.",
-  },
-  {
-    href: "/timer",
-    title: "Таймер",
-    text: "Скрамбл по правилам WCA и замер времени, когда сборка уже получается.",
-  },
-  {
-    href: "/stats",
-    title: "Статистика",
-    text: "Средние Ao5 и Ao12 по сохранённым сборкам.",
-  },
-];
-
 /*
-  Временная страница: уроки появятся в задаче E эпика #38 и заменят её целиком.
-  Нужна сейчас, чтобы главная кнопка лендинга и ссылка «Учиться» в шапке не
-  вели в 404.
+  Список курса. Страница остаётся серверной и статической: уроки — это код,
+  никаких запросов на них не нужно. Отметки о пройденном появятся в задаче G,
+  вместе с прогрессом.
 */
 export default function LearnPage() {
   return (
@@ -34,24 +17,44 @@ export default function LearnPage() {
       <div className="max-w-2xl space-y-4">
         <h1 className="text-3xl font-bold">Научиться собирать</h1>
         <p className="text-lg text-muted">
-          Курс от первого поворота до собранного куба ещё готовится: уроков
-          здесь пока нет.
+          Курс от первого поворота до собранного куба. Каждый урок показывает
+          алгоритм на кубе — можно листать по ходам и повторять на своём.
         </p>
-        <p className="text-muted">А вот что в платформе уже работает.</p>
+        <p className="text-muted">
+          Вход не нужен: уроки открыты всем.
+        </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        {AVAILABLE.map((section) => (
-          <Card key={section.href}>
-            <h2 className="font-semibold">
-              <Link href={section.href} className="text-accent-text">
-                {section.title}
-              </Link>
-            </h2>
-            <p className="mt-2 text-sm text-muted">{section.text}</p>
-          </Card>
+      <ol className="grid gap-4 sm:grid-cols-2">
+        {LESSONS.map((lesson, index) => (
+          <li key={lesson.slug}>
+            <Card className="h-full">
+              <p className="text-sm text-muted">Урок {index + 1}</p>
+              <h2 className="mt-1 font-semibold">
+                <Link href={`/learn/${lesson.slug}`} className="text-accent-text">
+                  {lesson.title}
+                </Link>
+              </h2>
+              <p className="mt-2 text-sm text-muted">{lesson.summary}</p>
+              <p className="mt-3 text-sm text-muted">
+                Шагов: {lesson.steps.length}
+              </p>
+            </Card>
+          </li>
         ))}
-      </div>
+      </ol>
+
+      <p className="text-sm text-muted">
+        Уже умеете собирать? Тогда вам в{" "}
+        <Link href="/timer" className="text-accent-text">
+          таймер
+        </Link>{" "}
+        или на{" "}
+        <Link href="/trainer" className="text-accent-text">
+          тренажёр
+        </Link>
+        .
+      </p>
     </div>
   );
 }
