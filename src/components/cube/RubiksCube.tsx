@@ -19,6 +19,8 @@ import {
 import * as THREE from "three";
 import { Axis, resolveDragRotation } from "./dragRotation";
 import { BODY_COLOR, STICKER_COLORS } from "./cubeTheme";
+import type { Move } from "@/lib/cube/moves";
+import { moveForSliceTurn } from "@/lib/cube/bridge";
 
 const CUBIE_SIZE = 0.98;
 const CORNER_RADIUS = 0.12;
@@ -61,6 +63,14 @@ const DEFAULT_DURATION = 300;
 
 interface RubiksCubeProps {
   onRotateEnd?: () => void;
+  /**
+   * Ход, сделанный руками пользователя, — модель должна узнавать о том, чего
+   * не запускала сама. Поэтому вызывается только из обработчика жеста, а не из
+   * rotateSlice: программное проигрывание урока идёт мимо и о себе не
+   * сообщает. Поворот среднего среза тоже молчит: у него нет записи в нотации
+   * граней, которую понимает движок.
+   */
+  onMove?: (move: Move) => void;
 }
 
 export interface RubiksCubeRef {
@@ -128,7 +138,7 @@ function useCubeResources() {
 const CubeCore = forwardRef<
   RubiksCubeRef,
   RubiksCubeProps & { setOrbitEnabled: (enabled: boolean) => void }
->(({ onRotateEnd, setOrbitEnabled }, ref) => {
+>(({ onRotateEnd, onMove, setOrbitEnabled }, ref) => {
   const groupRef = useRef<THREE.Group>(null);
   const pivotRef = useRef<THREE.Group>(null);
   const cubiesRef = useRef<THREE.Mesh[]>([]);
@@ -376,7 +386,13 @@ const CubeCore = forwardRef<
     );
     if (!rotation) return;
 
-    void rotateSlice(rotation.axis, rotation.index, rotation.direction);
+    // Сообщаем о ходе после того, как поворот доигран: до этого момента куб
+    // ещё не в том состоянии, о котором мы рассказываем. null означает средний
+    // срез — про него сказать нечего.
+    const move = moveForSliceTurn(rotation);
+    void rotateSlice(rotation.axis, rotation.index, rotation.direction).then(() => {
+      if (move) onMove?.(move);
+    });
     endSliceGesture();
   };
 
@@ -394,7 +410,7 @@ const CubeCore = forwardRef<
 
 CubeCore.displayName = "CubeCore";
 
-const RubiksCube = forwardRef<RubiksCubeRef, RubiksCubeProps>(({ onRotateEnd }, ref) => {
+const RubiksCube = forwardRef<RubiksCubeRef, RubiksCubeProps>(({ onRotateEnd, onMove }, ref) => {
   const [orbitEnabled, setOrbitEnabled] = useState(true);
 
   return (
@@ -405,7 +421,12 @@ const RubiksCube = forwardRef<RubiksCubeRef, RubiksCubeProps>(({ onRotateEnd }, 
       >
         <ambientLight intensity={0.5} />
         <directionalLight position={[10, 10, 10]} intensity={1.2} />
-        <CubeCore ref={ref} onRotateEnd={onRotateEnd} setOrbitEnabled={setOrbitEnabled} />
+        <CubeCore
+          ref={ref}
+          onRotateEnd={onRotateEnd}
+          onMove={onMove}
+          setOrbitEnabled={setOrbitEnabled}
+        />
         {/*
           Окружение собирается из источников прямо здесь. Пресеты (preset="...")
           использовать нельзя: drei скачивает для них HDRI с raw.githack.com в
