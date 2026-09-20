@@ -5,6 +5,7 @@ import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import LessonCube from "./LessonCube";
+import { useLessonProgress } from "./useLessonProgress";
 import {
   initialPlayerState,
   isFinished,
@@ -13,6 +14,7 @@ import {
 } from "./playerState";
 import type { RubiksCubeRef } from "@/components/cube/RubiksCube";
 import type { Lesson } from "@/content/lessons";
+import type { ProgressEntry } from "@/lib/lessonProgress";
 import { goalLabel } from "@/content/lessons";
 import { formatMove, invertMove, parseSequence } from "@/lib/cube/moves";
 import { playSequence, sliceTurnsForMove } from "@/lib/cube/bridge";
@@ -56,7 +58,17 @@ function usePrefersReducedMotion(): boolean {
  * и собирается заново, поэтому никакого накопления расхождений не существует
  * в принципе.
  */
-export default function LessonPlayer({ lesson }: { lesson: Lesson }) {
+export default function LessonPlayer({
+  lesson,
+  signedIn = false,
+  initialProgress = null,
+}: {
+  lesson: Lesson;
+  /** Вошёл — прогресс в базе, не вошёл — в localStorage. */
+  signedIn?: boolean;
+  /** Прогресс из базы для вошедшего. */
+  initialProgress?: ProgressEntry | null;
+}) {
   /*
     Куб живёт в состоянии, а не в ref, и это не стилистика.
 
@@ -156,10 +168,26 @@ export default function LessonPlayer({ lesson }: { lesson: Lesson }) {
     });
   };
 
+  // Прогресс: возвращает к шагу, где человек остановился, и запоминает новые.
+  // Урок пройден, когда до конца показан алгоритм последнего шага.
+  const progress = useLessonProgress({
+    slug: lesson.slug,
+    signedIn,
+    initial: initialProgress,
+    stepIndex: state.stepIndex,
+    completed: finished && state.stepIndex === lesson.steps.length - 1,
+    onResume: selectStep,
+  });
+
   return (
     <div className="space-y-8">
       <div className="space-y-2">
         <h1 className="text-3xl font-bold">{lesson.title}</h1>
+        {progress.completed && (
+          <p data-testid="lesson-completed">
+            <Badge tone="warning">Урок пройден</Badge>
+          </p>
+        )}
         <p className="max-w-2xl text-muted">{lesson.summary}</p>
       </div>
 
