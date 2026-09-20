@@ -162,14 +162,20 @@ export function assessTry(step: TryStep, history: readonly Move[]): TryAssessmen
   }
 
   if (here) {
+    // План сокращается и здесь, а не только в ветке возврата. Алгоритм урока
+    // может повторять последовательность дважды, и на стыке повторов стоит
+    // пара вроде `F' F`: крутить её незачем, позиция от неё не меняется. Пока
+    // остаток брался сырым, план на пути оказывался длиннее плана возврата — и
+    // подсказка, вернувшая человека на путь, «удлиняла» путь до цели.
+    const plan = simplify(here.remaining);
     return {
       status: here === path[0] ? "start" : "on-track",
       progress: here.progress,
       total,
       onAlgorithm: true,
       stray: 0,
-      plan: here.remaining,
-      hint: here.remaining[0] ?? null,
+      plan,
+      hint: plan[0] ?? null,
     };
   }
 
