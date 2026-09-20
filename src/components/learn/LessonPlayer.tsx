@@ -5,7 +5,9 @@ import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import LessonCube from "./LessonCube";
+import TryPanel from "./TryPanel";
 import { useLessonProgress } from "./useLessonProgress";
+import { useTrySession } from "./useTrySession";
 import {
   initialPlayerState,
   isFinished,
@@ -96,6 +98,16 @@ export default function LessonPlayer({
   const step = lesson.steps[state.stepIndex] ?? firstStep;
   const moves = useMemo(() => parseSequence(step.algorithm), [step.algorithm]);
   const setupMoves = useMemo(() => parseSequence(step.setup), [step.setup]);
+
+  // Режим «Попробовать»: человек крутит сам, урок проверяет — см. useTrySession.
+  const [mode, setMode] = useState<"watch" | "try">("watch");
+  const trying = useTrySession(step, state.resetToken, mode === "try");
+  // Смена режима начинает шаг заново: куб, накрученный в одном режиме, в другом ничего не значит.
+  const switchMode = (next: "watch" | "try") => {
+    if (next === mode) return;
+    setMode(next);
+    dispatch({ type: "restart" });
+  };
 
   const reducedMotion = usePrefersReducedMotion();
   const duration = reducedMotion ? INSTANT : BASE_DURATION / state.speed;
@@ -194,9 +206,15 @@ export default function LessonPlayer({
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0 space-y-4">
           {/* key — пересборка куба: размонтировали, собрали заново, расхождению неоткуда взяться. */}
-          <LessonCube key={state.resetToken} onCube={setCube} />
+          <LessonCube
+            key={state.resetToken}
+            onCube={setCube}
+            onMove={trying.handlers?.onMove}
+            onRotateEnd={trying.handlers?.onRotateEnd}
+          />
 
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Не атрибут hidden: класс flex перебил бы его своим display. */}
+          <div className={mode === "try" ? "hidden" : "flex flex-wrap items-center gap-2"}>
             <Button
               onClick={() => dispatch({ type: state.playing ? "pause" : "play" })}
             >
@@ -235,10 +253,25 @@ export default function LessonPlayer({
             </span>
           </div>
 
-          <p className="text-sm text-muted">
+          <p className="text-sm text-muted" hidden={mode === "try"}>
             Ход {state.moveIndex} из {state.totalMoves}
             {reducedMotion && " · анимация выключена в настройках системы"}
           </p>
+
+          {mode === "try" && (
+            <TryPanel
+              key={`try-${state.resetToken}`}
+              assessment={trying.assessment}
+              desynced={trying.desynced}
+              moveCount={trying.moveCount}
+              onReset={() => dispatch({ type: "restart" })}
+              onNextStep={
+                state.stepIndex + 1 < lesson.steps.length
+                  ? () => selectStep(state.stepIndex + 1)
+                  : undefined
+              }
+            />
+          )}
         </div>
 
         <div className="space-y-4">
@@ -247,11 +280,16 @@ export default function LessonPlayer({
             role="group"
             aria-label="Режим урока"
           >
-            <Button aria-pressed>Посмотреть</Button>
-            {/* Второй режим включает задача F: здесь он виден, но не работает. */}
-            <Button variant="secondary" disabled title="Появится в следующей задаче">
-              Попробовать
-            </Button>
+            {(["watch", "try"] as const).map((value) => (
+              <Button
+                key={value}
+                variant={mode === value ? "primary" : "secondary"}
+                aria-pressed={mode === value}
+                onClick={() => switchMode(value)}
+              >
+                {value === "watch" ? "Посмотреть" : "Попробовать"}
+              </Button>
+            ))}
           </div>
 
           <Card>
@@ -266,7 +304,7 @@ export default function LessonPlayer({
                     <span
                       key={`${index}-${formatMove(move)}`}
                       className={
-                        index < state.moveIndex ? "text-muted" : "font-semibold text-text"
+                        index < (mode === "try" ? trying.assessment.progress : state.moveIndex) ? "text-muted" : "font-semibold text-text"
                       }
                     >
                       {formatMove(move)}

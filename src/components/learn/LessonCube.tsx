@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import type { RubiksCubeRef } from "@/components/cube/RubiksCube";
+import type { Move } from "@/lib/cube/moves";
 
 /** Запасной статичный вариант: показывается, пока грузится чанк с кубом. */
 function CubePoster() {
@@ -44,12 +45,18 @@ const RubiksCube = dynamic(() => import("@/components/cube/RubiksCube"), {
  */
 export default function LessonCube({
   onCube,
+  onMove,
+  onRotateEnd,
 }: {
   onCube: (cube: RubiksCubeRef | null) => void;
+  /** Ход рукой — для режима «Попробовать». */
+  onMove?: (move: Move) => void;
+  /** Конец любого поворота; обработчик обязан быть стабильным, см. useTrySession. */
+  onRotateEnd?: () => void;
 }) {
   return (
     <div className="h-[340px] w-full min-w-0 overflow-hidden sm:h-[440px] [&>div]:min-h-0">
-      <RubiksCube ref={onCube} />
+      <RubiksCube ref={onCube} onMove={onMove} onRotateEnd={onRotateEnd} />
     </div>
   );
 }
