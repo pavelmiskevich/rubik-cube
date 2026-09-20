@@ -28,7 +28,7 @@
  * as unsolved; a model that only remembered positions could not say so.
  */
 
-import { CORNERS, CubeState, EDGES, SOLVED_CUBE, equals } from "./state";
+import { CORNERS, Corner, CubeState, EDGES, Edge, SOLVED_CUBE, equals } from "./state";
 import { FACES, Face } from "./moves";
 
 /** Opposite faces. A face and its opposite bound the slice between them. */
@@ -79,6 +79,36 @@ const cornerAtHome = (state: CubeState, slot: number): boolean =>
 const edgeAtHome = (state: CubeState, slot: number): boolean =>
   state.edgePermutation[slot] === slot && state.edgeOrientation[slot] === 0;
 
+/**
+ * Which colour shows on `face` at an edge slot.
+ *
+ * A colour is named by the face whose centre carries it, so `"U"` is "the
+ * colour of the top centre". The last layer needs this: the beginner's cross
+ * and one-coloured top care about what is visible on a face, not about which
+ * piece sits where.
+ *
+ * The arithmetic rests on the naming in `state.ts`. A piece's name lists its
+ * stickers and a slot's name lists its faces in matching order, so with
+ * orientation 0 the n-th sticker of the piece lies on the n-th face of the
+ * slot, and every twist shifts that by one.
+ */
+export function edgeColour(state: CubeState, slot: Edge, face: Face): Face {
+  const position = EDGES.indexOf(slot);
+  const facelet = slot.indexOf(face);
+  if (facelet < 0) throw new Error(`Ребро ${slot} не касается грани ${face}`);
+  const piece = EDGES[state.edgePermutation[position]];
+  return piece[(facelet + state.edgeOrientation[position]) % 2] as Face;
+}
+
+/** Which colour shows on `face` at a corner slot. See `edgeColour`. */
+export function cornerColour(state: CubeState, slot: Corner, face: Face): Face {
+  const position = CORNERS.indexOf(slot);
+  const facelet = slot.indexOf(face);
+  if (facelet < 0) throw new Error(`Угол ${slot} не касается грани ${face}`);
+  const piece = CORNERS[state.cornerPermutation[position]];
+  return piece[(facelet - state.cornerOrientation[position] + 3) % 3] as Face;
+}
+
 /** Every piece home, nothing twisted. */
 export function isSolved(state: CubeState): boolean {
   return equals(state, SOLVED_CUBE);
@@ -100,5 +130,59 @@ export function isFirstLayerSolved(state: CubeState, face: Face): boolean {
 export function areTwoLayersSolved(state: CubeState, face: Face): boolean {
   return (
     isFirstLayerSolved(state, face) && MIDDLE_EDGES[face].every((slot) => edgeAtHome(state, slot))
+  );
+}
+
+/*
+ * The last layer.
+ *
+ * The beginner's method finishes the top in four moves of attention, and each
+ * of them looks at the top face rather than at the pieces: a cross of the top
+ * colour, then the whole top one colour, then the corners home, then
+ * everything. The colours on the sides do not matter until the very end, so
+ * the first two questions read stickers, not slots.
+ *
+ * `face` is the last layer itself — U in the course. Every last-layer step also
+ * demands that the two layers under it still stand: an algorithm that makes a
+ * pretty top by wrecking the bottom has taught nothing.
+ */
+
+const cornersOf = (face: Face): readonly Corner[] => CORNERS.filter((name) => name.includes(face));
+const edgesOf = (face: Face): readonly Edge[] => EDGES.filter((name) => name.includes(face));
+
+/**
+ * The four edges around `face` show its colour on it — a cross, whether or
+ * not their other sides match the centres yet. Compare `isCrossSolved`, which
+ * wants them home.
+ */
+export function isCrossFormed(state: CubeState, face: Face): boolean {
+  return edgesOf(face).every((slot) => edgeColour(state, slot, face) === face);
+}
+
+/** All nine stickers of `face` are its colour. */
+export function isFaceOneColour(state: CubeState, face: Face): boolean {
+  return (
+    isCrossFormed(state, face) &&
+    cornersOf(face).every((slot) => cornerColour(state, slot, face) === face)
+  );
+}
+
+/** Two layers under `face` stand and `face` shows a cross of its colour. */
+export function isLastLayerCrossFormed(state: CubeState, face: Face): boolean {
+  return areTwoLayersSolved(state, OPPOSITE[face]) && isCrossFormed(state, face);
+}
+
+/** Two layers under `face` stand and `face` is one colour. */
+export function isLastLayerOriented(state: CubeState, face: Face): boolean {
+  return areTwoLayersSolved(state, OPPOSITE[face]) && isFaceOneColour(state, face);
+}
+
+/**
+ * The last layer is one colour and its corners are home; only its edges may
+ * still be out of place.
+ */
+export function areLastLayerCornersPlaced(state: CubeState, face: Face): boolean {
+  return (
+    isLastLayerOriented(state, face) && LAYER_CORNERS[face].every((slot) => cornerAtHome(state, slot))
   );
 }

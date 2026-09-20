@@ -1,9 +1,12 @@
 import type { CubeState } from "@/lib/cube/state";
 import type { Face } from "@/lib/cube/moves";
 import {
+  areLastLayerCornersPlaced,
   areTwoLayersSolved,
   isCrossSolved,
   isFirstLayerSolved,
+  isLastLayerCrossFormed,
+  isLastLayerOriented,
   isSolved,
 } from "@/lib/cube/predicates";
 
@@ -22,7 +25,11 @@ export type LessonGoal =
   | { kind: "solved" }
   | { kind: "cross"; face: Face }
   | { kind: "firstLayer"; face: Face }
-  | { kind: "twoLayers"; face: Face };
+  | { kind: "twoLayers"; face: Face }
+  /** Цели последнего слоя: `face` — сам последний слой, в курсе это U. */
+  | { kind: "lastLayerCross"; face: Face }
+  | { kind: "lastLayerOriented"; face: Face }
+  | { kind: "lastLayerCorners"; face: Face };
 
 /** Достигнута ли цель шага в этом состоянии. */
 export function isGoalReached(state: CubeState, goal: LessonGoal): boolean {
@@ -35,6 +42,12 @@ export function isGoalReached(state: CubeState, goal: LessonGoal): boolean {
       return isFirstLayerSolved(state, goal.face);
     case "twoLayers":
       return areTwoLayersSolved(state, goal.face);
+    case "lastLayerCross":
+      return isLastLayerCrossFormed(state, goal.face);
+    case "lastLayerOriented":
+      return isLastLayerOriented(state, goal.face);
+    case "lastLayerCorners":
+      return areLastLayerCornersPlaced(state, goal.face);
   }
 }
 
@@ -49,6 +62,12 @@ export function goalLabel(goal: LessonGoal): string {
       return `первый слой на грани ${goal.face}`;
     case "twoLayers":
       return `два слоя на грани ${goal.face}`;
+    case "lastLayerCross":
+      return `крест на последнем слое, грань ${goal.face}`;
+    case "lastLayerOriented":
+      return `грань ${goal.face} целиком одного цвета`;
+    case "lastLayerCorners":
+      return `углы последнего слоя на местах, грань ${goal.face}`;
   }
 }
 
