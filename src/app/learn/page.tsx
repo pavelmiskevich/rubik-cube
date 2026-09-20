@@ -1,17 +1,24 @@
 import Link from "next/link";
+import { auth } from "@/auth";
 import Card from "@/components/ui/Card";
+import LessonProgressMark from "@/components/learn/LessonProgressMark";
 import { LESSONS } from "@/content/lessons";
+import { getLessonProgressForUser } from "@/lib/lessonProgressDb";
 
 export const metadata = {
   title: "Учиться | RubikPlatform",
 };
 
 /*
-  Список курса. Страница остаётся серверной и статической: уроки — это код,
-  никаких запросов на них не нужно. Отметки о пройденном появятся в задаче G,
-  вместе с прогрессом.
+  Список курса. Уроки — это код, запросов за ними нет; в базу ходим только за
+  прогрессом вошедшего. Анонимный прогресс лежит в localStorage, и отметку по
+  нему дорисовывает уже браузер. Недоступная база даёт пустой прогресс, а не
+  ошибку: список уроков от неё не зависит.
 */
-export default function LearnPage() {
+export default async function LearnPage() {
+  const session = await auth();
+  const userId = session?.user?.id;
+  const progress = userId ? await getLessonProgressForUser(userId) : {};
   return (
     <div className="space-y-8">
       <div className="max-w-2xl space-y-4">
@@ -36,9 +43,15 @@ export default function LearnPage() {
                 </Link>
               </h2>
               <p className="mt-2 text-sm text-muted">{lesson.summary}</p>
-              <p className="mt-3 text-sm text-muted">
-                Шагов: {lesson.steps.length}
-              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-muted">
+                <span>Шагов: {lesson.steps.length}</span>
+                <LessonProgressMark
+                  slug={lesson.slug}
+                  stepCount={lesson.steps.length}
+                  signedIn={Boolean(userId)}
+                  initial={progress[lesson.slug] ?? null}
+                />
+              </div>
             </Card>
           </li>
         ))}

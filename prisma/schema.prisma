@@ -55,6 +55,7 @@ model User {
   accounts      Account[]
   sessions      Session[]
   trainingSessions TrainingSession[]
+  lessonProgress   LessonProgress[]
 }
 
 model TrainingSession {
@@ -79,4 +80,23 @@ model Solve {
   trainingSession   TrainingSession @relation(fields: [trainingSessionId], references: [id], onDelete: Cascade)
 
   @@index([trainingSessionId, createdAt])
+}
+
+/// Где человек остановился в уроке. Одна строка на пару «пользователь + урок»:
+/// повторное прохождение обновляет её, а не плодит новые.
+model LessonProgress {
+  id         String   @id @default(uuid(7))
+  userId     String
+  /// Идентификатор урока — slug из src/content/lessons. Уроки живут в коде,
+  /// поэтому внешнего ключа нет: удалённый из курса урок оставит строку-сироту,
+  /// которую просто никто не прочитает.
+  lessonSlug String
+  /// Номер открытого шага, с нуля.
+  stepIndex  Int      @default(0)
+  /// Урок пройден до конца. Однажды поставленная отметка не снимается.
+  completed  Boolean  @default(false)
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonSlug])
 }
