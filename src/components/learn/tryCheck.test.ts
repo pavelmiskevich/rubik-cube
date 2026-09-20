@@ -10,7 +10,7 @@ import {
   parseSequence,
   type Move,
 } from "@/lib/cube/moves";
-import { assessTry, describeMove, simplify } from "./tryCheck";
+import { assessTry, describeMove, simplify, type TryStep } from "./tryCheck";
 
 const seq = parseSequence;
 const stepById = (id: string): LessonStep => {
@@ -243,6 +243,41 @@ describe("assessTry: шаг, который человек крутит сам",
       }
     }
   );
+});
+
+describe("assessTry: план на пути алгоритма", () => {
+  /**
+   * Шаг с алгоритмом, повторённым дважды: на стыке повторов стоит пара `F' F`,
+   * а крутить её человеку незачем — позиция от неё не меняется. Такие алгоритмы
+   * появляются в уроках последнего слоя, где последовательность применяют
+   * дважды или трижды.
+   */
+  const repeated: TryStep = {
+    setup: "F R U R' U' F' F R U R' U' F'",
+    algorithm: "F R U R' U' F' F R U R' U' F'",
+    goal: { kind: "solved" },
+  };
+
+  it("не оставляет в плане пару ходов, которая сама себя отменяет", () => {
+    // Сделан первый ход алгоритма. В остатке записи стык повторов — `… F' F …`,
+    // и крутить эту пару незачем: позиция от неё не меняется.
+    const result = assessTry(repeated, seq("F"));
+
+    expect(result.status).toBe("on-track");
+    expect(formatSequence(result.plan)).toBe("R U R' U' R U R' U' F'");
+  });
+
+  it("возврат на путь алгоритма сокращает план, а не удлиняет его", () => {
+    // Лишний ход в сторону, затем подсказка обратно. Пока план на пути брался
+    // сырым остатком, он здесь становился длиннее: десять ходов против одиннадцати.
+    const history = seq("F U");
+    const strayed = assessTry(repeated, history);
+    expect(strayed.status).toBe("off-track");
+
+    const back = assessTry(repeated, [...history, strayed.hint as Move]);
+    expect(back.status).toBe("on-track");
+    expect(back.plan.length).toBeLessThan(strayed.plan.length);
+  });
 });
 
 describe("describeMove", () => {
