@@ -11,6 +11,15 @@ import {
   isLastLayerOriented,
   isSolved,
 } from "@/lib/cube/predicates";
+import {
+  SIDES,
+  Side,
+  cornerSeen,
+  edgeSeen,
+  inFrame,
+  realCorner,
+  realEdge,
+} from "@/lib/cube/frames";
 import { ALGORITHMS } from "./algorithms";
 import { LESSONS, getLesson } from "./index";
 import type { LessonStep } from "./types";
@@ -26,49 +35,12 @@ import type { LessonStep } from "./types";
  *
  * Правило пользуется только тем, чему учит урок: алгоритмами из
  * `algorithms.ts`, поворотами верхнего слоя и поворотом всего кубика в руках.
- * Последнего движок не умеет, поэтому здесь он записан как переименование
- * граней: алгоритм, сделанный «глядя на правую сторону», — это тот же
- * алгоритм, где F заменена на R, R на B и так далее.
+ * Последнего движок не умеет, поэтому он записан как переименование граней в
+ * `@/lib/cube/frames`: алгоритм, сделанный «глядя на правую сторону», — это тот
+ * же алгоритм, где F заменена на R, R на B и так далее. Оттуда же им
+ * пользуется решатель, так что правило урока и правило решателя — буквально
+ * одно и то же.
  */
-
-type Side = "F" | "R" | "B" | "L";
-const SIDES: readonly Side[] = ["F", "R", "B", "L"];
-
-/** Куб повёрнут в руках так, что спереди `front`: какая настоящая грань под каждым именем. */
-const FRAMES: Readonly<Record<Side, Readonly<Record<Face, Face>>>> = {
-  F: { U: "U", D: "D", F: "F", R: "R", B: "B", L: "L" },
-  R: { U: "U", D: "D", F: "R", R: "B", B: "L", L: "F" },
-  B: { U: "U", D: "D", F: "B", R: "L", B: "F", L: "R" },
-  L: { U: "U", D: "D", F: "L", R: "F", B: "R", L: "B" },
-};
-
-const inFrame = (algorithm: string, front: Side): string =>
-  formatSequence(
-    parseSequence(algorithm).map((move) => ({ face: FRAMES[front][move.face], turn: move.turn }))
-  );
-
-const sameLetters = (a: string, b: string) => a.length === b.length && [...a].every((c) => b.includes(c));
-
-const realEdge = (slot: Edge, front: Side): Edge => {
-  const letters = [...slot].map((face) => FRAMES[front][face as Face]).join("");
-  return EDGES.find((name) => sameLetters(name, letters))!;
-};
-
-const realCorner = (slot: Corner, front: Side): Corner => {
-  const letters = [...slot].map((face) => FRAMES[front][face as Face]).join("");
-  return CORNERS.find((name) => sameLetters(name, letters))!;
-};
-
-/** Цвет на грани `face` у ребра `slot`, всё — в именах повёрнутого в руках куба. */
-const edgeSeen = (state: CubeState, front: Side, slot: Edge, face: Face): Face => {
-  const real = edgeColour(state, realEdge(slot, front), FRAMES[front][face]);
-  return (Object.keys(FRAMES[front]) as Face[]).find((name) => FRAMES[front][name] === real)!;
-};
-
-const cornerSeen = (state: CubeState, front: Side, slot: Corner, face: Face): Face => {
-  const real = cornerColour(state, realCorner(slot, front), FRAMES[front][face]);
-  return (Object.keys(FRAMES[front]) as Face[]).find((name) => FRAMES[front][name] === real)!;
-};
 
 const cornerHome = (state: CubeState, slot: Corner) =>
   state.cornerPermutation[CORNER_INDEX[slot]] === CORNER_INDEX[slot] &&
