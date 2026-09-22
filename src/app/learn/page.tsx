@@ -57,6 +57,24 @@ export default async function LearnPage() {
         ))}
       </ol>
 
+      {/*
+        Вход в решатель — отсюда, а не из шапки: в шапке уже четыре раздела, и
+        на телефоне она занимает пятую часть экрана (задача про шапку открыта).
+        Человек с разобранным кубиком в руках приходит за курсом и находит
+        решатель рядом с ним.
+      */}
+      <Card>
+        <h2 className="font-semibold">
+          <Link href="/solve" className="text-accent-text">
+            Решить мой кубик
+          </Link>
+        </h2>
+        <p className="mt-2 text-sm text-muted">
+          Перенесите раскраску своего кубика на развёртку — платформа проверит,
+          бывает ли такой кубик, и поймёт, как он стоит.
+        </p>
+      </Card>
+
       <p className="text-sm text-muted">
         Уже умеете собирать? Тогда вам в{" "}
         <Link href="/timer" className="text-accent-text">
