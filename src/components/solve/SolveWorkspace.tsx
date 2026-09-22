@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import { FACE_SIZE, Sticker, checkFacelets, faceletIndex } from "@/lib/cube/facelets";
-import { isSolved } from "@/lib/cube/predicates";
+import { moveCount, solutionFor } from "./solution";
 import {
   Painting,
   countOf,
@@ -102,6 +102,16 @@ export default function SolveWorkspace() {
     читаются как «здесь всё неверно». Для счёта уже есть честный указатель:
     «10/9» в палитре.
   */
+  /*
+    Решение считается разом, как только раскраска принята: послойный разбор
+    занимает миллисекунды, ждать нечего, и кнопка «решить» была бы лишним
+    щелчком между человеком и ответом.
+  */
+  const solution = useMemo(
+    () => (check?.ok === true ? solutionFor(check.state) : null),
+    [check]
+  );
+
   const flagged = useMemo(() => {
     if (!check || check.ok) return new Set<number>();
     return new Set(
@@ -248,31 +258,65 @@ export default function SolveWorkspace() {
           </Card>
         )}
 
-        {check?.ok === true && (
+        {check?.ok === true && solution?.kind === "solved" && (
           <Card>
-            <h2 className="font-semibold">Раскраска принята</h2>
+            <h2 className="font-semibold">Этот кубик уже собран</h2>
             <p className="mt-2 text-muted">
-              {isSolved(check.state)
-                ? "Этот кубик уже собран — собирать нечего."
-                : "Такой кубик бывает, и из этого положения он собирается."}
-            </p>
-            {/*
-              Здесь появится пошаговый разбор: он делается отдельно (задача о
-              послойном решателе) и подключится к уже принятому положению.
-              Обещать его текстом раньше времени нельзя — человек будет ждать
-              кнопку, которой нет.
-            */}
-            <p className="mt-4 text-muted">
-              Пошагового разбора пока нет: платформа умеет проверить раскраску и
-              понять, как стоит ваш кубик, а разбирать положение по шагам ещё
-              учится. Пока что кубик из этого положения можно собрать по урокам
-              курса — они идут от креста до последнего слоя.
+              Собирать нечего. Если хотите потренироваться, перемешайте кубик и
+              заполните развёртку заново — или пройдите курс с начала.
             </p>
             <div className="mt-4">
               <Link href="/learn">
                 <Button>К урокам</Button>
               </Link>
             </div>
+          </Card>
+        )}
+
+        {solution?.kind === "steps" && (
+          <Card>
+            <h2 className="font-semibold">Как собрать этот кубик</h2>
+            <p className="mt-2 text-muted">
+              {moveCount(solution.total)} по шагам курса. Держите кубик так же,
+              как заполняли развёртку: белый верх, зелёный к себе. Каждый шаг —
+              отдельный урок, и если по буквам непонятно, урок объясняет их
+              словами.
+            </p>
+
+            <ol className="mt-4 space-y-4">
+              {solution.steps.map((step, position) => (
+                <li key={step.lessonSlug} className="border-t pt-4 first:border-t-0 first:pt-0">
+                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <span className="text-muted">{position + 1}.</span>
+                    <h3 className="font-semibold">{step.title}</h3>
+                    <span className="text-sm text-muted">{moveCount(step.count)}</span>
+                  </div>
+                  {/* Ходы переносятся по словам: шаг углов бывает и в полсотни. */}
+                  <p className="mt-2 break-words font-mono text-sm">{step.moves}</p>
+                  <Link href={step.href} className="mt-2 inline-block text-sm text-accent-text">
+                    Урок: {step.title}
+                  </Link>
+                </li>
+              ))}
+            </ol>
+
+            <p className="mt-6 text-sm text-muted">
+              Решение длинное намеренно. Короткое — это два десятка ходов,
+              которые не объясняют ничего; здесь же вы собираете кубик теми же
+              приёмами, что и в курсе, и после нескольких раз соберёте его без
+              подсказки.
+            </p>
+          </Card>
+        )}
+
+        {solution?.kind === "failed" && (
+          <Card className="border-danger">
+            <h2 className="font-semibold text-danger">Не получилось разобрать положение</h2>
+            <p className="mt-2 text-muted">
+              Раскраска прошла проверку, но собрать по ней решение не вышло —
+              это ошибка платформы, а не ваша. Проверьте, что цвета на развёртке
+              совпадают с кубиком в руках, и попробуйте ещё раз.
+            </p>
           </Card>
         )}
       </div>
