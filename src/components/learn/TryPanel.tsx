@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Button from "@/components/ui/Button";
 import { formatMove } from "@/lib/cube/moves";
+import { isTryStepCounted } from "./completion";
 import { describeMove, type TryAssessment } from "./tryCheck";
 
 /** Дальше этого отматывать ход за ходом утомительнее, чем начать шаг заново. */
@@ -30,12 +31,13 @@ function statusText(assessment: TryAssessment): { text: string; tone: string } {
         tone: "text-danger",
       };
     case "done":
-      return {
-        text: onAlgorithm
-          ? "Шаг выполнен: цель достигнута, и именно тем алгоритмом."
-          : "Цель шага достигнута, хоть и не тем алгоритмом, которому учит шаг.",
-        tone: "text-success",
-      };
+      // Цель другим путём — шаг не засчитан: урок учит алгоритму, а не цели (#69).
+      return onAlgorithm
+        ? { text: "Шаг выполнен: цель достигнута, и именно тем алгоритмом.", tone: "text-success" }
+        : {
+            text: "Цель на кубе достигнута, но не тем алгоритмом, которому учит шаг, — поэтому шаг не засчитан. Пройдите его заново по алгоритму.",
+            tone: "text-text",
+          };
   }
 }
 
@@ -66,6 +68,9 @@ export default function TryPanel({
 
   const { hint, status } = assessment;
   const showHint = hint !== null && !desynced && hintAt === moveCount;
+  const counted = isTryStepCounted(assessment, desynced);
+  /** Цель достигнута другим путём: выход один — пройти шаг заново. */
+  const redo = status === "done" && !desynced && !counted;
   const verdict = desynced
     ? {
         text: "Повёрнут средний слой — урок его не отслеживает, и проверка остановлена. Верните куб к началу шага.",
@@ -99,10 +104,13 @@ export default function TryPanel({
         >
           Подсказка
         </Button>
-        <Button variant={desynced || status === "off-track" ? "primary" : "ghost"} onClick={onReset}>
-          Вернуть к началу шага
+        <Button
+          variant={desynced || redo || status === "off-track" ? "primary" : "ghost"}
+          onClick={onReset}
+        >
+          {redo ? "Пройти шаг заново" : "Вернуть к началу шага"}
         </Button>
-        {status === "done" && !desynced && onNextStep && (
+        {counted && onNextStep && (
           <Button onClick={onNextStep}>Следующий шаг</Button>
         )}
       </div>
