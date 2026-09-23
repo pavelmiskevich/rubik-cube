@@ -6,6 +6,7 @@ import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import LessonCube from "./LessonCube";
 import TryPanel from "./TryPanel";
+import { isLessonCompleted, isTryStepCounted } from "./completion";
 import { useLessonProgress } from "./useLessonProgress";
 import { useTrySession } from "./useTrySession";
 import {
@@ -181,13 +182,19 @@ export default function LessonPlayer({
   };
 
   // Прогресс: возвращает к шагу, где человек остановился, и запоминает новые.
-  // Урок пройден, когда до конца показан алгоритм последнего шага.
+  // Когда урок пройден — в обоих режимах, — решает completion.ts.
   const progress = useLessonProgress({
     slug: lesson.slug,
     signedIn,
     initial: initialProgress,
     stepIndex: state.stepIndex,
-    completed: finished && state.stepIndex === lesson.steps.length - 1,
+    completed: isLessonCompleted({
+      stepIndex: state.stepIndex,
+      stepCount: lesson.steps.length,
+      mode,
+      watchFinished: finished,
+      tryCounted: isTryStepCounted(trying.assessment, trying.desynced),
+    }),
     onResume: selectStep,
   });
 
