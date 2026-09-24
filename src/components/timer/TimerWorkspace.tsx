@@ -22,6 +22,8 @@ interface TimerWorkspaceProps {
   canSave: boolean;
   /** История из базы: средние считаются с учётом прошлых тренировок. */
   initialSolves?: SolveResult[];
+  /** Урок, который тренируется (`/timer?lesson=`); сборки сохраняются с ним. */
+  lessonSlug?: string;
 }
 
 /**
@@ -32,6 +34,7 @@ interface TimerWorkspaceProps {
 export default function TimerWorkspace({
   canSave,
   initialSolves = [],
+  lessonSlug,
 }: TimerWorkspaceProps) {
   const [scramble, setScramble] = useState("");
   const [state, dispatch] = useReducer(
@@ -69,6 +72,7 @@ export default function TimerWorkspace({
       <SmartTimer
         scramble={scramble}
         canSave={canSave}
+        lessonSlug={lessonSlug}
         onStateChange={handleStateChange}
         onSolve={handleSolve}
       />

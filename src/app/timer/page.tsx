@@ -2,23 +2,12 @@ import Link from "next/link";
 import { auth } from "@/auth";
 import TimerWorkspace from "@/components/timer/TimerWorkspace";
 import Card from "@/components/ui/Card";
-import { getLesson } from "@/content/lessons";
+import { practisedLesson } from "@/lib/practiceLesson";
 import { getSolvesForUser } from "@/lib/solves";
 
 export const metadata = {
   title: "Таймер | RubikPlatform",
 };
-
-/**
- * Урок, который человек сейчас тренирует, если он пришёл на таймер с урока.
- * Адрес пишется руками кем угодно, поэтому незнакомый или повторённый
- * параметр — просто «ничего не тренирует», а не ошибка.
- */
-function practisedLesson(value: string | string[] | undefined) {
-  if (typeof value !== "string") return undefined;
-  const lesson = getLesson(value);
-  return lesson?.practice ? lesson : undefined;
-}
 
 export default async function TimerPage({
   searchParams,
@@ -29,6 +18,8 @@ export default async function TimerPage({
   const userId = session?.user?.id;
   // Средние на рабочем экране считаются с учётом прошлых тренировок, а не с нуля.
   const initialSolves = userId ? await getSolvesForUser(userId) : [];
+  // Урок, который человек тренирует, если пришёл на таймер с урока. Правило
+  // общее с saveSolve: что показано здесь, то и запишется в сборку.
   const lesson = practisedLesson((await searchParams).lesson);
 
   return (
@@ -51,7 +42,11 @@ export default async function TimerPage({
           </Card>
         </div>
       )}
-      <TimerWorkspace canSave={Boolean(session?.user)} initialSolves={initialSolves} />
+      <TimerWorkspace
+        canSave={Boolean(session?.user)}
+        initialSolves={initialSolves}
+        lessonSlug={lesson?.slug}
+      />
     </div>
   );
 }
