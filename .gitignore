@@ -44,3 +44,7 @@ next-env.d.ts
 
 # личные разрешения Claude Code — у каждого разработчика свои
 .claude/settings.local.json
+
+# рабочие деревья агентов и снимки браузерных проверок — локальные
+/.claude/worktrees/
+/.playwright-mcp/
