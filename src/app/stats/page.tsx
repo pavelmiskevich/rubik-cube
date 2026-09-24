@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { auth } from "@/auth";
-import { getSolvesForUser } from "@/lib/solves";
+import { selectedStatsLesson, statsLessonOptions } from "@/lib/practiceLesson";
+import { getSolveLessonSlugsForUser, getSolvesForUser } from "@/lib/solves";
+import LessonFilter from "@/components/dashboard/LessonFilter";
 import StatisticsDashboard from "@/components/dashboard/StatisticsDashboard";
 import Button from "@/components/ui/Button";
 import EmptyState from "@/components/ui/EmptyState";
@@ -15,7 +17,11 @@ export const metadata = {
   сегмент и так рендерится на каждый запрос. По той же причине не нужен и
   connection().
 */
-export default async function StatsPage() {
+export default async function StatsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   const session = await auth();
   const userId = session?.user?.id;
 
@@ -33,7 +39,16 @@ export default async function StatsPage() {
     );
   }
 
-  const solves = await getSolvesForUser(userId);
+  // Выбор урока: в нём только уроки, по которым есть сборки. Урок в адресе,
+  // которого нет среди них, — «все сборки», а не пустая статистика.
+  const lessons = statsLessonOptions(await getSolveLessonSlugsForUser(userId));
+  const selected = selectedStatsLesson((await searchParams).lesson, lessons);
+  // Средние, спарклайн и список считаются тем же дашбордом, только по
+  // отфильтрованным сборкам: правила WCA в statistics.ts не знают об уроках.
+  const solves = await getSolvesForUser(
+    userId,
+    selected ? { lessonSlug: selected.slug } : {}
+  );
 
   if (solves.length === 0) {
     return (
@@ -52,6 +67,7 @@ export default async function StatsPage() {
   return (
     <div className="space-y-8">
       <h1 className="text-3xl font-bold">Статистика</h1>
+      {lessons.length > 0 && <LessonFilter lessons={lessons} selected={selected} />}
       <StatisticsDashboard solves={solves} />
     </div>
   );

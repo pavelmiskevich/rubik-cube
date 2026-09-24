@@ -16,6 +16,11 @@ const INITIAL_DISPLAY = formatSolveTime(0);
 interface SmartTimerProps {
   /** Scramble recorded alongside the solve; empty when the timer runs standalone. */
   scramble?: string;
+  /**
+   * Урок, который тренируется, — уходит в saveSolve рядом со скрамблом.
+   * Сервер проверяет его сам: неизвестный урок сохранится свободной сборкой.
+   */
+  lessonSlug?: string;
   /** Solves are only persisted for a signed-in user; used to explain that up front. */
   canSave?: boolean;
   /** Состояние машины таймера — по нему включается режим фокуса. */
@@ -26,6 +31,7 @@ interface SmartTimerProps {
 
 export default function SmartTimer({
   scramble = "",
+  lessonSlug,
   canSave = true,
   onStateChange,
   onSolve,
@@ -38,6 +44,9 @@ export default function SmartTimer({
   // Read at stop time so a scramble regenerated mid-solve does not rebind the
   // whole stop callback.
   const scrambleRef = useRef(scramble);
+  // Урок — так же, через ref: машина состояний и её обработчики не меняются,
+  // а сохранение читает урок в тот же момент, что и скрамбл.
+  const lessonSlugRef = useRef(lessonSlug);
   const startTimeRef = useRef<number>(0);
   const rafRef = useRef<number | null>(null);
 
@@ -50,6 +59,10 @@ export default function SmartTimer({
   useEffect(() => {
     scrambleRef.current = scramble;
   }, [scramble]);
+
+  useEffect(() => {
+    lessonSlugRef.current = lessonSlug;
+  }, [lessonSlug]);
 
   useEffect(() => {
     onStateChangeRef.current = onStateChange;
@@ -105,7 +118,7 @@ export default function SmartTimer({
 
     // A failed write used to disappear into console.error, leaving the solve
     // silently unrecorded while the UI showed a finished time.
-    saveSolve(Math.round(elapsed), scrambleRef.current).then(
+    saveSolve(Math.round(elapsed), scrambleRef.current, lessonSlugRef.current).then(
       (result) => {
         if (!result.success) setSaveError(result.error);
       },

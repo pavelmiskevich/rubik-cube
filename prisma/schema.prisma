@@ -77,6 +77,11 @@ model Solve {
   isDNF             Boolean         @default(false)
   isPlusTwo         Boolean         @default(false)
   createdAt         DateTime        @default(now())
+  /// Урок, который тренировался на таймере, — slug из src/content/lessons;
+  /// null — свободная сборка. Пишется только урок с полем practice
+  /// (src/lib/practiceLesson.ts). Внешнего ключа нет по той же причине, что у
+  /// LessonProgress: уроки живут в коде.
+  lessonSlug        String?
   trainingSession   TrainingSession @relation(fields: [trainingSessionId], references: [id], onDelete: Cascade)
 
   @@index([trainingSessionId, createdAt])

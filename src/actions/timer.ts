@@ -2,6 +2,7 @@
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { solveLessonSlug } from "@/lib/practiceLesson";
 
 const DEFAULT_SESSION_NAME = "Main 3x3";
 
@@ -11,7 +12,20 @@ const MAX_SCRAMBLE_LENGTH = 256;
 
 export type SaveSolveResult = { success: true } | { success: false; error: string };
 
-export async function saveSolve(timeMs: number, scramble: string = ""): Promise<SaveSolveResult> {
+/**
+ * Сохраняет сборку вошедшего человека.
+ *
+ * `lessonSlug` — урок, с которого открыт таймер (`/timer?lesson=`). Адрес
+ * пишет кто угодно, поэтому урок проверяется тем же правилом, по которому
+ * таймер показывает «Сейчас тренируете»: незнакомый или нетренируемый урок —
+ * свободная сборка, а не отказ. Потерять замер из-за подложенного адреса хуже,
+ * чем записать его без отметки.
+ */
+export async function saveSolve(
+  timeMs: number,
+  scramble: string = "",
+  lessonSlug?: string
+): Promise<SaveSolveResult> {
   // A server action is a public endpoint. Without this check anyone could POST
   // solves, and the previous placeholder went further and created a user row
   // to hang them off.
@@ -41,6 +55,7 @@ export async function saveSolve(timeMs: number, scramble: string = ""): Promise<
         timeMs: Math.round(timeMs),
         scramble: scramble.slice(0, MAX_SCRAMBLE_LENGTH),
         trainingSessionId: userId,
+        lessonSlug: solveLessonSlug(lessonSlug),
       },
     });
 
