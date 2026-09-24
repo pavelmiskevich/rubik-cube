@@ -6,6 +6,8 @@ import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import { FACE_SIZE, Sticker, checkFacelets, faceletIndex } from "@/lib/cube/facelets";
 import { moveCount, solutionFor } from "./solution";
+import { ShortSolutionCard, SolutionMode, SolutionModeSwitch } from "./SolutionMode";
+import { useShortSolution } from "./useShortSolution";
 import {
   Painting,
   countOf,
@@ -111,6 +113,9 @@ export default function SolveWorkspace() {
     () => (check?.ok === true ? solutionFor(check.state) : null),
     [check]
   );
+
+  const [mode, setMode] = useState<SolutionMode>("clear");
+  const short = useShortSolution(check?.ok === true ? check.state : null, mode === "short");
 
   const flagged = useMemo(() => {
     if (!check || check.ok) return new Set<number>();
@@ -273,7 +278,13 @@ export default function SolveWorkspace() {
           </Card>
         )}
 
-        {solution?.kind === "steps" && (
+        {solution?.kind === "steps" && <SolutionModeSwitch mode={mode} onChange={setMode} />}
+
+        {solution?.kind === "steps" && mode === "short" && short && (
+          <ShortSolutionCard solution={short} />
+        )}
+
+        {solution?.kind === "steps" && mode === "clear" && (
           <Card>
             <h2 className="font-semibold">Как собрать этот кубик</h2>
             <p className="mt-2 text-muted">
@@ -304,7 +315,8 @@ export default function SolveWorkspace() {
               Решение длинное намеренно. Короткое — это два десятка ходов,
               которые не объясняют ничего; здесь же вы собираете кубик теми же
               приёмами, что и в курсе, и после нескольких раз соберёте его без
-              подсказки.
+              подсказки. Если собирать вы уже умеете, короткий ответ — в
+              режиме «коротко».
             </p>
           </Card>
         )}
