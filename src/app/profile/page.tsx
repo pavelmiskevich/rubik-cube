@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import Image from "next/image";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
+import LocalProgressMerge from "@/components/learn/LocalProgressMerge";
 
 export default async function ProfilePage() {
   const session = await auth();
@@ -13,6 +14,8 @@ export default async function ProfilePage() {
 
   return (
     <div className="mx-auto w-full max-w-2xl">
+      {/* Любой вход ведёт сюда — здесь прогресс анонима и переезжает в аккаунт. */}
+      <LocalProgressMerge />
       <Card className="space-y-8">
         <div className="flex flex-wrap items-center justify-between gap-4 border-b pb-6">
           <h1 className="text-2xl font-bold">Профиль</h1>
