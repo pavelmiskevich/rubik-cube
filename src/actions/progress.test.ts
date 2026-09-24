@@ -7,6 +7,7 @@
 const auth = jest.fn();
 const upsert = jest.fn();
 const findMany = jest.fn();
+const transaction = jest.fn();
 
 jest.mock("@/auth", () => ({ auth: () => auth() }));
 jest.mock("@/lib/prisma", () => ({
@@ -15,10 +16,11 @@ jest.mock("@/lib/prisma", () => ({
       upsert: (...args: unknown[]) => upsert(...args),
       findMany: (...args: unknown[]) => findMany(...args),
     },
+    $transaction: (...args: unknown[]) => transaction(...args),
   },
 }));
 
-import { saveLessonProgress } from "./progress";
+import { mergeLessonProgress, saveLessonProgress } from "./progress";
 import { getLessonProgressForUser } from "@/lib/lessonProgressDb";
 import { LESSONS } from "@/content/lessons";
 
@@ -29,6 +31,7 @@ beforeEach(() => {
   auth.mockReset();
   upsert.mockReset();
   findMany.mockReset();
+  transaction.mockReset();
   jest.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -130,6 +133,125 @@ describe("getLessonProgressForUser", () => {
     findMany.mockRejectedValue(new Error("connection refused"));
 
     await expect(getLessonProgressForUser("user-1")).resolves.toEqual({});
+    expect(console.error).toHaveBeenCalled();
+  });
+});
+
+describe("mergeLessonProgress — прогресс анонима в аккаунт при входе", () => {
+  const other = LESSONS[1];
+
+  /** Каждый upsert в транзакции узнаётся по своим аргументам. */
+  function signedIn(rows: { lessonSlug: string; stepIndex: number; completed: boolean }[]) {
+    auth.mockResolvedValue({ user: { id: "user-1" } });
+    findMany.mockResolvedValue(rows);
+    upsert.mockImplementation((args: unknown) => ({ upsert: args }));
+    transaction.mockImplementation(async (ops: unknown[]) => ops);
+  }
+
+  const written = () =>
+    (transaction.mock.calls[0]?.[0] ?? []).map((op: { upsert: unknown }) => op.upsert);
+
+  it("без входа ничего не читает и не пишет", async () => {
+    auth.mockResolvedValue(null);
+
+    const result = await mergeLessonProgress({ [lesson.slug]: { stepIndex: 1, completed: false } });
+
+    expect(result.success).toBe(false);
+    expect(findMany).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it("пустой базе достаётся всё, что прошёл аноним, от имени текущей сессии", async () => {
+    signedIn([]);
+
+    const result = await mergeLessonProgress({
+      [lesson.slug]: { stepIndex: 1, completed: false },
+      [other.slug]: { stepIndex: 0, completed: true },
+    });
+
+    expect(result).toEqual({ success: true, written: 2 });
+    expect(findMany.mock.calls[0][0].where.userId).toBe("user-1");
+    expect(written()).toEqual([
+      {
+        where: { userId_lessonSlug: { userId: "user-1", lessonSlug: lesson.slug } },
+        create: { userId: "user-1", lessonSlug: lesson.slug, stepIndex: 1, completed: false },
+        update: { stepIndex: 1 },
+      },
+      {
+        where: { userId_lessonSlug: { userId: "user-1", lessonSlug: other.slug } },
+        create: { userId: "user-1", lessonSlug: other.slug, stepIndex: 0, completed: true },
+        update: { stepIndex: 0, completed: true },
+      },
+    ]);
+  });
+
+  it("аккаунт, где урок пройден дальше, назад не откатывается", async () => {
+    signedIn([{ lessonSlug: lesson.slug, stepIndex: 3, completed: true }]);
+
+    const result = await mergeLessonProgress({ [lesson.slug]: { stepIndex: 1, completed: false } });
+
+    expect(result).toEqual({ success: true, written: 0 });
+    expect(transaction).not.toHaveBeenCalled();
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it("пишет слитую запись: больший шаг из базы и отметку анонима", async () => {
+    signedIn([{ lessonSlug: lesson.slug, stepIndex: 3, completed: false }]);
+
+    await mergeLessonProgress({ [lesson.slug]: { stepIndex: 1, completed: true } });
+
+    expect(written()).toEqual([
+      expect.objectContaining({ update: { stepIndex: 3, completed: true } }),
+    ]);
+  });
+
+  it("незавершённая запись в update не несёт поля completed — снять отметку нечем", async () => {
+    signedIn([{ lessonSlug: lesson.slug, stepIndex: 0, completed: false }]);
+
+    await mergeLessonProgress({ [lesson.slug]: { stepIndex: 2, completed: false } });
+
+    expect(written()[0].update).toEqual({ stepIndex: 2 });
+  });
+
+  it("мусор и неизвестные уроки отбрасываются, база не трогается", async () => {
+    signedIn([]);
+
+    const junk = [null, "строка", [1, 2], { "no-such-lesson": { stepIndex: 1, completed: true } }];
+    for (const bad of junk) {
+      expect(await mergeLessonProgress(bad)).toEqual({ success: true, written: 0 });
+    }
+    expect(findMany).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it("шаг за пределами урока прижимается к последнему", async () => {
+    signedIn([]);
+
+    await mergeLessonProgress({ [lesson.slug]: { stepIndex: 999, completed: false } });
+
+    expect(written()[0].create.stepIndex).toBe(lastStep);
+  });
+
+  it("недоступная при чтении база — размеченная ошибка и ни одной записи", async () => {
+    signedIn([]);
+    findMany.mockRejectedValue(new Error("connection refused"));
+
+    const result = await mergeLessonProgress({ [lesson.slug]: { stepIndex: 1, completed: false } });
+
+    // Прочитать не вышло — писать вслепую нельзя: так можно откатить прогресс,
+    // который в базе дальше локального.
+    expect(result).toEqual({ success: false, error: expect.any(String) });
+    expect(transaction).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalled();
+  });
+
+  it("сбой записи — размеченная ошибка, а не исключение", async () => {
+    signedIn([]);
+    transaction.mockRejectedValue(new Error("deadlock"));
+
+    const result = await mergeLessonProgress({ [lesson.slug]: { stepIndex: 1, completed: false } });
+
+    expect(result).toEqual({ success: false, error: expect.any(String) });
     expect(console.error).toHaveBeenCalled();
   });
 });
