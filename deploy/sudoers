@@ -1,0 +1,5 @@
+# /etc/sudoers.d/rubik-cube-deploy — владелец root, права 440.
+# Ставить только через visudo -c -f: битый файл в sudoers.d ломает sudo целиком.
+#
+# Пользователь выкладки может от root ровно одно — запустить скрипт выкладки.
+rubik-deploy ALL=(root) NOPASSWD: /usr/local/bin/rubik-cube-deploy

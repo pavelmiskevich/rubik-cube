@@ -1,0 +1,69 @@
+# Прод-стек на общем VPS.
+#
+# Эталон файла /opt/rubik-cube/docker-compose.yml на сервере. Серверная копия
+# принадлежит root и из репозитория НЕ подтягивается: выкладка меняет только
+# тег образа (IMAGE_TAG в image.env). Так изменение в репозитории не может
+# само по себе примонтировать в контейнер файловую систему хоста или открыть
+# порт наружу. Правку этого файла на сервер переносит администратор — README,
+# раздел «Деплой».
+#
+# Сервер общий, поэтому: своё имя проекта, своя сеть и тома; приложение слушает
+# только 127.0.0.1 (наружу его отдаёт системный веб-сервер), база не
+# публикуется вовсе; у каждого контейнера — потолок памяти и ротация логов.
+name: rubik-cube
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  app:
+    image: ghcr.io/pavelmiskevich/rubik-cube:${IMAGE_TAG:?IMAGE_TAG не задан}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?}
+      AUTH_URL: ${AUTH_URL:?}
+      AUTH_SECRET: ${AUTH_SECRET:?}
+      AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID:-}
+      AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET:-}
+    ports:
+      - "127.0.0.1:${HOST_PORT:-3030}:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    mem_limit: 512m
+    logging: *logging
+
+  # Образ стадии builder: в нём есть CLI Prisma, которого нет в standalone-сборке.
+  migrate:
+    image: ghcr.io/pavelmiskevich/rubik-cube:migrate-${IMAGE_TAG:?IMAGE_TAG не задан}
+    command: ["npx", "prisma", "migrate", "deploy"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?}
+    depends_on:
+      db:
+        condition: service_healthy
+    mem_limit: 512m
+    logging: *logging
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:?}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    mem_limit: 384m
+    logging: *logging
+
+volumes:
+  pgdata:

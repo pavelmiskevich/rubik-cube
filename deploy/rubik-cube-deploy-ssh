@@ -1,0 +1,19 @@
+#!/bin/bash
+# Принудительная команда SSH-ключа пользователя rubik-deploy.
+#
+# Ставится в /usr/local/bin/rubik-cube-deploy-ssh: владелец root, права 755.
+# В ~rubik-deploy/.ssh/authorized_keys ключ записан так:
+#   command="/usr/local/bin/rubik-cube-deploy-ssh",restrict ssh-ed25519 AAAA… rubik-cube-deploy
+# Что бы ни прислал клиент, выполняется этот скрипт, а присланное лежит в
+# SSH_ORIGINAL_COMMAND. Принимается ровно «deploy <полный SHA>» — ни шелла, ни
+# других команд; restrict отключает pty и все пробросы.
+set -euo pipefail
+
+read -r verb sha extra <<< "${SSH_ORIGINAL_COMMAND:-}"
+
+if [[ "${verb:-}" != "deploy" || ! "${sha:-}" =~ ^[0-9a-f]{40}$ || -n "${extra:-}" ]]; then
+  echo "Разрешена только команда: deploy <полный SHA коммита>" >&2
+  exit 2
+fi
+
+exec sudo -n /usr/local/bin/rubik-cube-deploy "$sha"
