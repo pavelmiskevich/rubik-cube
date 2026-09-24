@@ -8,11 +8,10 @@ import {
   readLocalProgress,
   writeLocalProgress,
   type ProgressEntry,
-  type ProgressStorage,
 } from "@/lib/lessonProgress";
 
 /** localStorage, если он есть и к нему пускают. Само обращение может бросить. */
-export function browserStorage(): ProgressStorage | null {
+export function browserStorage(): Storage | null {
   try {
     return typeof window === "undefined" ? null : window.localStorage;
   } catch {
@@ -25,6 +24,10 @@ export function browserStorage(): ProgressStorage | null {
  * анонима — из localStorage после монтирования (на сервере его нет, поэтому
  * первая отрисовка у анонима всегда «без прогресса»).
  *
+ * Серверный прогресс берётся прямо из свойства, а не запоминается при
+ * монтировании: после слияния анонимного прогресса страница обновляется, и
+ * отметка должна показать уже слитое.
+ *
  * `undefined` — ещё не прочитано, `null` — прочитано, прогресса нет.
  */
 export function useSavedProgress(
@@ -32,26 +35,27 @@ export function useSavedProgress(
   signedIn: boolean,
   initial: ProgressEntry | null
 ): ProgressEntry | null | undefined {
-  const [saved, setSaved] = useState<ProgressEntry | null | undefined>(
-    signedIn ? initial : undefined
-  );
+  const [local, setLocal] = useState<ProgressEntry | null | undefined>(undefined);
 
   useEffect(() => {
     if (signedIn) return;
-    const local = readLocalProgress(browserStorage(), COURSE_SHAPES)[slug] ?? null;
+    const entry = readLocalProgress(browserStorage(), COURSE_SHAPES)[slug] ?? null;
     // Чтение внешнего хранилища после монтирования: на сервере его нет, и
     // прочитать его при первой отрисовке значило бы разойтись с разметкой.
     // Лишняя перерисовка тут одна, при открытии урока.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSaved(local);
+    setLocal(entry);
   }, [slug, signedIn]);
 
-  return saved;
+  return signedIn ? initial : local;
 }
 
 interface Options {
   slug: string;
-  /** Вошёл — база, не вошёл — localStorage. Слияния при входе нет. */
+  /**
+   * Вошёл — база, не вошёл — localStorage. Локальное сливается с базой при
+   * входе (`LocalProgressMerge`), а не здесь.
+   */
   signedIn: boolean;
   /** Прогресс из базы, прочитанный страницей. Для анонима не используется. */
   initial: ProgressEntry | null;

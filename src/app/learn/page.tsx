@@ -2,6 +2,7 @@ import Link from "next/link";
 import { auth } from "@/auth";
 import Card from "@/components/ui/Card";
 import LessonProgressMark from "@/components/learn/LessonProgressMark";
+import LocalProgressMerge from "@/components/learn/LocalProgressMerge";
 import { LESSONS } from "@/content/lessons";
 import { getLessonProgressForUser } from "@/lib/lessonProgressDb";
 
@@ -21,6 +22,11 @@ export default async function LearnPage() {
   const progress = userId ? await getLessonProgressForUser(userId) : {};
   return (
     <div className="space-y-8">
+      {/*
+        Слияние анонимного прогресса происходит при входе, на профиле; здесь —
+        повторная попытка, если там оно не удалось.
+      */}
+      {userId && <LocalProgressMerge />}
       <div className="max-w-2xl space-y-4">
         <h1 className="text-3xl font-bold">Научиться собирать</h1>
         <p className="text-lg text-muted">
