@@ -3,7 +3,9 @@ import { auth } from "@/auth";
 import Card from "@/components/ui/Card";
 import LessonProgressMark from "@/components/learn/LessonProgressMark";
 import LocalProgressMerge from "@/components/learn/LocalProgressMerge";
-import { LESSONS } from "@/content/lessons";
+import { BlockGate } from "@/components/learn/LessonGate";
+import { COURSE, LESSONS, getLesson, type Lesson } from "@/content/lessons";
+import type { ProgressMap } from "@/lib/lessonProgress";
 import { getLessonProgressForUser } from "@/lib/lessonProgressDb";
 
 export const metadata = {
@@ -30,38 +32,41 @@ export default async function LearnPage() {
       <div className="max-w-2xl space-y-4">
         <h1 className="text-3xl font-bold">Научиться собирать</h1>
         <p className="text-lg text-muted">
-          Курс от первого поворота до собранного куба. Каждый урок показывает
-          алгоритм на кубе — можно листать по ходам и повторять на своём.
+          Курс от первого поворота до собранного куба — и дальше, к быстрой
+          сборке. Каждый урок показывает алгоритм на кубе — можно листать по
+          ходам и повторять на своём.
         </p>
         <p className="text-muted">
-          Вход не нужен: уроки открыты всем.
+          Вход не нужен: уроки открыты всем. Скоростной блок открывается,
+          как только вы соберёте куб целиком.
         </p>
       </div>
 
-      <ol className="grid gap-4 sm:grid-cols-2">
-        {LESSONS.map((lesson, index) => (
-          <li key={lesson.slug}>
-            <Card className="h-full">
-              <p className="text-sm text-muted">Урок {index + 1}</p>
-              <h2 className="mt-1 font-semibold">
-                <Link href={`/learn/${lesson.slug}`} className="text-accent-text">
-                  {lesson.title}
-                </Link>
-              </h2>
-              <p className="mt-2 text-sm text-muted">{lesson.summary}</p>
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-muted">
-                <span>Шагов: {lesson.steps.length}</span>
-                <LessonProgressMark
-                  slug={lesson.slug}
-                  stepCount={lesson.steps.length}
-                  signedIn={Boolean(userId)}
-                  initial={progress[lesson.slug] ?? null}
-                />
-              </div>
-            </Card>
-          </li>
-        ))}
-      </ol>
+      {COURSE.map((block) => {
+        const list = (
+          <LessonList lessons={block.lessons} signedIn={Boolean(userId)} progress={progress} />
+        );
+        const prerequisite = block.opensAfter ? getLesson(block.opensAfter) : undefined;
+        return (
+          <section key={block.id} className="space-y-4" data-testid={`course-block-${block.id}`}>
+            <div className="max-w-2xl space-y-1">
+              <h2 className="text-xl font-semibold">{block.title}</h2>
+              <p className="text-muted">{block.summary}</p>
+            </div>
+            {prerequisite ? (
+              <BlockGate
+                prerequisite={{ slug: prerequisite.slug, title: prerequisite.title }}
+                signedIn={Boolean(userId)}
+                initial={progress[prerequisite.slug] ?? null}
+              >
+                {list}
+              </BlockGate>
+            ) : (
+              list
+            )}
+          </section>
+        );
+      })}
 
       {/*
         Вход в решатель — отсюда, а не из шапки: в шапке уже четыре раздела, и
@@ -93,5 +98,43 @@ export default async function LearnPage() {
         .
       </p>
     </div>
+  );
+}
+
+/** Карточки уроков блока. Номер урока — сквозной по всему курсу. */
+function LessonList({
+  lessons,
+  signedIn,
+  progress,
+}: {
+  lessons: readonly Lesson[];
+  signedIn: boolean;
+  progress: ProgressMap;
+}) {
+  return (
+    <ol className="grid gap-4 sm:grid-cols-2">
+      {lessons.map((lesson) => (
+        <li key={lesson.slug}>
+          <Card className="h-full">
+            <p className="text-sm text-muted">Урок {LESSONS.indexOf(lesson) + 1}</p>
+            <h3 className="mt-1 font-semibold">
+              <Link href={`/learn/${lesson.slug}`} className="text-accent-text">
+                {lesson.title}
+              </Link>
+            </h3>
+            <p className="mt-2 text-sm text-muted">{lesson.summary}</p>
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-muted">
+              <span>Шагов: {lesson.steps.length}</span>
+              <LessonProgressMark
+                slug={lesson.slug}
+                stepCount={lesson.steps.length}
+                signedIn={signedIn}
+                initial={progress[lesson.slug] ?? null}
+              />
+            </div>
+          </Card>
+        </li>
+      ))}
+    </ol>
   );
 }

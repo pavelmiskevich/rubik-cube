@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import Link from "next/link";
 import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
+import CaseDiagram from "./CaseDiagram";
 import LessonCube from "./LessonCube";
 import TryPanel from "./TryPanel";
 import { isLessonCompleted, isTryStepCounted } from "./completion";
@@ -19,7 +21,7 @@ import type { RubiksCubeRef } from "@/components/cube/RubiksCube";
 import type { Lesson } from "@/content/lessons";
 import type { ProgressEntry } from "@/lib/lessonProgress";
 import { goalLabel } from "@/content/lessons";
-import { formatMove, invertMove, parseSequence } from "@/lib/cube/moves";
+import { applyNotation, formatMove, invertMove, parseSequence } from "@/lib/cube/moves";
 import { playSequence, sliceTurnsForMove } from "@/lib/cube/bridge";
 
 /** Длительность одного хода на обычной скорости. */
@@ -181,6 +183,19 @@ export default function LessonPlayer({
     });
   };
 
+  // Тренировка одного случая из списка: сразу на куб, сразу в «Попробовать».
+  // Куб на телефоне выше списка — прокручиваем к нему, иначе нажатие
+  // выглядело бы так, будто ничего не произошло.
+  const cubeAreaRef = useRef<HTMLDivElement>(null);
+  const trainStep = (index: number) => {
+    setMode("try");
+    selectStep(index);
+    cubeAreaRef.current?.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
+  };
+
+  // Схема верха — с позиции начала шага, той же, что ставится на куб.
+  const startState = useMemo(() => applyNotation(step.setup), [step.setup]);
+
   // Прогресс: возвращает к шагу, где человек остановился, и запоминает новые.
   // Когда урок пройден — в обоих режимах, — решает completion.ts.
   const progress = useLessonProgress({
@@ -211,7 +226,7 @@ export default function LessonPlayer({
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="min-w-0 space-y-4">
+        <div ref={cubeAreaRef} className="min-w-0 scroll-mt-4 space-y-4">
           {/* key — пересборка куба: размонтировали, собрали заново, расхождению неоткуда взяться. */}
           <LessonCube
             key={state.resetToken}
@@ -301,6 +316,11 @@ export default function LessonPlayer({
 
           <Card>
             <h2 className="font-semibold">{step.title}</h2>
+            {lesson.diagram && (
+              <div className="mt-3 flex justify-center">
+                <CaseDiagram state={startState} kind={lesson.diagram} />
+              </div>
+            )}
             <p className="mt-2 text-sm text-muted">{step.explanation}</p>
 
             <dl className="mt-4 space-y-2 text-sm">
@@ -329,23 +349,56 @@ export default function LessonPlayer({
             </dl>
           </Card>
 
-          <ol className="space-y-1">
+          {/*
+            Главная кнопка шага — прямой потомок li: по ней шаг ищет сквозной
+            тест. «Попробовать» вложена глубже и в его выборку не попадает.
+          */}
+          <ol className="space-y-1" aria-label="Шаги урока">
             {lesson.steps.map((lessonStep, index) => (
-              <li key={lessonStep.id}>
+              <li
+                key={lessonStep.id}
+                className={`rounded-control ${index === state.stepIndex ? "border bg-surface-2" : ""}`}
+              >
                 <button
                   onClick={() => selectStep(index)}
                   aria-current={index === state.stepIndex ? "step" : undefined}
-                  className={`w-full rounded-control px-3 py-2 text-left text-sm ${
-                    index === state.stepIndex
-                      ? "border bg-surface-2 font-semibold"
-                      : "text-muted hover:text-text"
+                  className={`w-full px-3 pt-2 text-left text-sm ${
+                    index === state.stepIndex ? "font-semibold" : "text-muted hover:text-text"
                   }`}
                 >
                   {index + 1}. {lessonStep.title}
                 </button>
+                <div className="flex items-center justify-between gap-2 px-3 pb-2">
+                  <span className="min-w-0 break-words font-mono text-xs text-muted">
+                    {lessonStep.algorithm}
+                  </span>
+                  <button
+                    onClick={() => trainStep(index)}
+                    className="shrink-0 text-xs font-semibold text-accent-text hover:underline"
+                    aria-label={`Попробовать шаг ${index + 1}: ${lessonStep.title}`}
+                  >
+                    Попробовать
+                  </button>
+                </div>
               </li>
             ))}
           </ol>
+
+          {lesson.practice && (
+            <Card>
+              <h2 className="font-semibold">На таймере</h2>
+              <p className="mt-2 text-sm text-muted">{lesson.practice}</p>
+              <p className="mt-3 text-sm">
+                <Link
+                  href={`/timer?lesson=${encodeURIComponent(lesson.slug)}`}
+                  className="font-semibold text-accent-text"
+                  data-testid="practice-timer-link"
+                >
+                  Замерить на таймере →
+                </Link>
+              </p>
+            </Card>
+          )}
         </div>
       </div>
     </div>
