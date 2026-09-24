@@ -8,6 +8,8 @@ import { FACE_SIZE, Sticker, checkFacelets, faceletIndex } from "@/lib/cube/face
 import { moveCount, solutionFor } from "./solution";
 import { ShortSolutionCard, SolutionMode, SolutionModeSwitch } from "./SolutionMode";
 import { useShortSolution } from "./useShortSolution";
+import CameraCapture from "./camera/CameraCapture";
+import type { Recognition } from "./camera/recognition";
 import {
   Painting,
   countOf,
@@ -53,12 +55,15 @@ function StickerButton({
   value,
   label,
   flagged,
+  doubtful = false,
   onPaint,
 }: {
   index: number;
   value: Sticker | null;
   label: string;
   flagged: boolean;
+  /** Камера не уверена в цвете — стоит сверить с кубиком. */
+  doubtful?: boolean;
   /** Без цвета — красит выбранным в палитре. */
   onPaint: (index: number, brush?: Brush) => void;
 }) {
@@ -79,13 +84,14 @@ function StickerButton({
           onPaint(index, null);
         }
       }}
-      aria-label={`${label}: ${value ? STICKER_NAME[value] : "не заполнено"}`}
+      aria-label={`${label}: ${value ? STICKER_NAME[value] : "не заполнено"}${doubtful ? ", проверьте" : ""}`}
       style={value ? { backgroundColor: STICKER_FILL[value] } : undefined}
       className={[
         "h-10 w-10 rounded-[0.4rem] border transition-shadow",
         value ? "" : "border-dashed bg-surface-2",
         locked ? "cursor-default" : "cursor-pointer",
         flagged ? "outline outline-2 outline-offset-2 outline-danger" : "",
+        doubtful && !flagged ? "outline-dashed outline-2 outline-offset-2 outline-accent-text" : "",
       ].join(" ")}
     />
   );
@@ -94,6 +100,8 @@ function StickerButton({
 export default function SolveWorkspace() {
   const [painting, setPainting] = useState<Painting>(emptyPainting);
   const [brush, setBrush] = useState<Brush>("U");
+  /* Пунктир держится, пока наклейка того цвета, что дала камера. */
+  const [recognised, setRecognised] = useState<Recognition | null>(null);
 
   const facelets = finishedPainting(painting);
   const check = useMemo(() => (facelets ? checkFacelets(facelets) : null), [facelets]);
@@ -136,6 +144,13 @@ export default function SolveWorkspace() {
 
   return (
     <div className="space-y-6">
+      <CameraCapture
+        onRecognised={(result) => {
+          setRecognised(result);
+          setPainting(result.painting);
+        }}
+      />
+
       <section aria-labelledby="palette-title" className="space-y-3">
         <h2 id="palette-title" className="text-sm font-semibold text-muted">
           Цвет
@@ -207,6 +222,10 @@ export default function SolveWorkspace() {
                       value={painting[index]}
                       label={`${FACE_NAME[face]}, ряд ${row + 1}, столбец ${column + 1}`}
                       flagged={flagged.has(index)}
+                      doubtful={
+                        recognised?.doubtful.includes(index) === true &&
+                        painting[index] === recognised.painting[index]
+                      }
                       onPaint={handlePaint}
                     />
                   );
