@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { auth } from "@/auth";
+import LessonGate from "@/components/learn/LessonGate";
 import LessonPlayer from "@/components/learn/LessonPlayer";
-import { LESSONS, getLesson } from "@/content/lessons";
+import { LESSONS, getLesson, prerequisiteOf } from "@/content/lessons";
 import { getLessonProgressForUser } from "@/lib/lessonProgressDb";
 
 /*
@@ -48,11 +49,26 @@ export default async function LessonPage({
   // открывается.
   const progress = userId ? await getLessonProgressForUser(userId) : {};
 
-  return (
+  const player = (
     <LessonPlayer
       lesson={lesson}
       signedIn={Boolean(userId)}
       initialProgress={progress[lesson.slug] ?? null}
     />
+  );
+
+  // Урок закрытого блока открывается, когда пройден урок, который его
+  // открывает. Прогресс анонима — в браузере, поэтому решает клиент.
+  const prerequisite = prerequisiteOf(lesson.slug);
+  if (!prerequisite) return player;
+
+  return (
+    <LessonGate
+      prerequisite={{ slug: prerequisite.slug, title: prerequisite.title }}
+      signedIn={Boolean(userId)}
+      initial={progress[prerequisite.slug] ?? null}
+    >
+      {player}
+    </LessonGate>
   );
 }

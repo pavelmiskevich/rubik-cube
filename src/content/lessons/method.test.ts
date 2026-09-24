@@ -21,7 +21,7 @@ import {
   realEdge,
 } from "@/lib/cube/frames";
 import { ALGORITHMS } from "./algorithms";
-import { LESSONS, getLesson } from "./index";
+import { LESSONS, blockOf, getLesson } from "./index";
 import type { LessonStep } from "./types";
 
 /**
@@ -427,9 +427,12 @@ const stepOf = (slug: string, id: string) => getLesson(slug)!.steps.find((step) 
 describe("показанный алгоритм — это то, что делает правило", () => {
   it("охватывает каждый шаг уроков, у которых есть правило", () => {
     // Нотация и крест собираются пониманием, а не правилом; у остальных пяти
-    // уроков каждый шаг обязан быть здесь.
+    // уроков метода слоёв каждый шаг обязан быть здесь. Скоростной блок учит
+    // случаи, а не правило «повторяй, пока не выйдет», — его наборы
+    // проверяет speed.test.ts.
     const covered = LESSONS.filter(
-      (lesson) => !["notation", "cross"].includes(lesson.slug)
+      (lesson) =>
+        blockOf(lesson.slug)?.id === "layers" && !["notation", "cross"].includes(lesson.slug)
     ).reduce((count, lesson) => count + lesson.steps.length, 0);
 
     expect(demonstrated).toHaveLength(covered);
