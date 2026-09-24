@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+  # Ручной запуск — например, повторить выкладку после сбоя сети. Выкладывается
+  # только main: job'ы ниже проверяют ref.
+  workflow_dispatch:
 
 # One deploy at a time, and never cancel one that has started: the stack runs
 # `prisma migrate deploy` on the way up, and interrupting that leaves the
@@ -48,55 +51,80 @@ jobs:
       - name: Build
         run: npm run build
 
-  deploy:
+  # Образы собираются здесь, а не на сервере: next build берёт 1,5–2 ГБ памяти,
+  # а сервер общий, и сборка на нём рискует задеть соседние проекты.
+  publish:
     needs: verify
-    # Off until a server exists (#26); verify still runs on every push. Must be
-    # a repository variable, not an environment one: a job-level `if` is
-    # evaluated before the production environment is applied, so environment
-    # variables are not visible here.
-    if: vars.DEPLOY_ENABLED == 'true'
+    # Выключатель — переменная репозитория, а не окружения: условие job'а
+    # вычисляется раньше, чем применяется окружение (#26).
+    if: vars.DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    # Scopes the SSH secrets to the production environment and gives the repo a
-    # place to require an approval before anything reaches the server.
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Приложение — стадия runner (standalone-сборка Next.js).
+      - name: Build and push app image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: runner
+          push: true
+          tags: ghcr.io/pavelmiskevich/rubik-cube:${{ github.sha }}
+          labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=rubik-cube
+          cache-to: type=gha,scope=rubik-cube,mode=max
+
+      # Миграции — стадия builder: в ней есть CLI Prisma. Слои общие с первой
+      # сборкой, так что второй проход почти целиком из кеша.
+      - name: Build and push migrate image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: builder
+          push: true
+          tags: ghcr.io/pavelmiskevich/rubik-cube:migrate-${{ github.sha }}
+          labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=rubik-cube
+
+  deploy:
+    needs: publish
+    if: vars.DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Секреты SSH живут в окружении production, и оно же требует подтверждения
+    # владельца перед выкладкой.
     environment: production
     steps:
+      # Ключ на сервере привязан к одной команде: «deploy <SHA>» запускает
+      # скрипт выкладки (deploy/rubik-cube-deploy), и больше этот ключ ничего не
+      # умеет. Что делает выкладка — смотреть там.
       - name: Deploy over SSH
-        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script_stop: true
-          script: |
-            set -eu
-            cd /opt/rubik-cube
-
-            # Reset rather than pull: a merge conflict or a stray local edit on
-            # the server must not leave the checkout on an unknown revision.
-            git fetch --prune origin main
-            git reset --hard origin/main
-
-            # The image build runs `prisma generate` and `next build`, and the
-            # compose stack applies migrations through its own `migrate`
-            # service, so there is nothing left to install on the host.
-            docker compose up -d --build
-
-            # `up -d` returns as soon as the containers start, which is not the
-            # same as the app answering requests. Without this check a deploy
-            # that boot-loops still reports success.
-            port=$(grep -E '^HOST_PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d '"' || true)
-            port=${port:-3030}
-
-            for _ in $(seq 1 30); do
-              code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${port}/" || true)
-              if [ "$code" = "200" ]; then
-                docker image prune -f
-                exit 0
-              fi
-              sleep 2
-            done
-
-            echo "App did not answer with 200 within 60s"
-            docker compose logs --tail=200
-            exit 1
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          set -eu
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Ключ хоста закреплён секретом: подменённый сервер не получит даже
+          # попытки входа.
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o BatchMode=yes \
+            "$SSH_USER@$SSH_HOST" "deploy $GITHUB_SHA"

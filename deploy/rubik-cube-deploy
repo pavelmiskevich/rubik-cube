@@ -1,0 +1,84 @@
+#!/bin/bash
+# Выкладка rubik-cube на общем VPS.
+#
+# Ставится в /usr/local/bin/rubik-cube-deploy: владелец root, права 755.
+# Пользователь rubik-deploy запускает его через sudo — правило в
+# /etc/sudoers.d/rubik-cube-deploy разрешает ему только этот файл. Аргумент
+# один: полный SHA коммита, образы которого CI уже опубликовал.
+#
+# Скрипт меняет только тег образа. Compose-файл и .env на сервере принадлежат
+# root, и отсюда их не изменить.
+set -euo pipefail
+
+readonly DIR=/opt/rubik-cube
+readonly IMAGE=ghcr.io/pavelmiskevich/rubik-cube
+
+sha="${1:-}"
+if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Использование: rubik-cube-deploy <полный SHA коммита>" >&2
+  exit 2
+fi
+
+# Две выкладки разом перепутали бы image.env и миграции.
+exec 9>/run/lock/rubik-cube-deploy.lock
+if ! flock -n 9; then
+  echo "Выкладка уже идёт" >&2
+  exit 1
+fi
+
+cd "$DIR"
+
+compose() {
+  docker compose --project-directory "$DIR" -f "$DIR/docker-compose.yml" \
+    --env-file "$DIR/.env" --env-file "$DIR/image.env" "$@"
+}
+
+# Скачать до того, как трогать работающий стек: нет образа — нет выкладки,
+# а старая версия продолжает работать.
+docker pull -q "$IMAGE:$sha"
+docker pull -q "$IMAGE:migrate-$sha"
+
+previous=""
+if [[ -f image.env ]]; then
+  previous=$(sed -n 's/^IMAGE_TAG=//p' image.env)
+fi
+printf 'IMAGE_TAG=%s\n' "$sha" > image.env.new
+mv image.env.new image.env
+
+port=$(sed -n 's/^HOST_PORT=//p' .env | tr -d '"')
+port=${port:-3030}
+
+fail() {
+  echo "$1" >&2
+  compose ps -a >&2 || true
+  compose logs --tail=200 migrate app >&2 || true
+  echo "Предыдущий тег: ${previous:-нет}. Откат — эта же команда с ним." >&2
+  exit 1
+}
+
+# up ждёт, пока migrate завершится успешно, и только потом запускает app.
+compose up -d --remove-orphans || fail "docker compose up не прошёл"
+
+# up возвращается, как только контейнеры стартовали, — это ещё не ответ
+# приложения. Без проверки зацикленный перезапуск выглядел бы успехом.
+code=""
+for _ in $(seq 1 30); do
+  code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${port}/" || true)
+  [[ "$code" == "200" ]] && break
+  sleep 2
+done
+[[ "$code" == "200" ]] || fail "Приложение не ответило 200 за 60 секунд (последний код: ${code:-нет})"
+
+# Чистятся только образы этого проекта: текущий и предыдущий остаются для
+# отката. Общий docker image prune задел бы соседей.
+keep=" $sha migrate-$sha "
+if [[ -n "$previous" ]]; then
+  keep+="$previous migrate-$previous "
+fi
+docker images "$IMAGE" --format '{{.Tag}}' | while read -r tag; do
+  if [[ "$keep" != *" $tag "* ]]; then
+    docker image rm "$IMAGE:$tag" >/dev/null 2>&1 || true
+  fi
+done
+
+echo "Выложен $sha"
