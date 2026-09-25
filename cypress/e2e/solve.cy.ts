@@ -79,6 +79,11 @@ describe("Решить мой кубик", () => {
   beforeEach(() => {
     cy.visit("/solve");
     cy.contains("h2", "Осталось назвать").should("be.visible");
+    // Экран целиком клиентский: клик до гидратации ушёл бы в никуда, и
+    // развёртка осталась бы недокрашенной.
+    cy.contains("button", "Заполнить как собранный").should(($button) => {
+      expect(Object.keys($button[0]).some((key) => key.startsWith("__reactProps"))).to.eq(true);
+    });
   });
 
   it("узнаёт собранный кубик", () => {

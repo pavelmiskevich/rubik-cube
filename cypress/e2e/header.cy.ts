@@ -38,7 +38,7 @@ describe("Шапка на телефоне", () => {
     // Переход из меню закрывает его.
     menuButton().click();
     cy.contains("nav a", "Войти").click();
-    cy.location("pathname").should("eq", "/login");
+    cy.location("pathname", { timeout: 60000 }).should("eq", "/login");
     cy.contains("h1", "Вход в аккаунт").should("be.visible");
     menuButton().should("have.attr", "aria-expanded", "false");
   });
@@ -52,7 +52,8 @@ describe("Шапка на телефоне", () => {
     ];
     for (const [label, path, heading] of routes) {
       section(label).click();
-      cy.location("pathname").should("eq", path);
+      // Запас на первую компиляцию маршрута под next dev.
+      cy.location("pathname", { timeout: 60000 }).should("eq", path);
       section(label).should("have.attr", "aria-current", "page");
       cy.contains("main h1, main h2", heading).should("be.visible");
     }

@@ -72,17 +72,22 @@ const timer = () => cy.get('[data-testid="timer"]');
  * Одна сборка клавиатурой: удержать пробел, отпустить, выждать, нажать. Ждём
  * ответа серверного действия saveSolve: без него переход на /stats обогнал бы
  * запись.
+ *
+ * Клавиши — на document, а не на body, как в timer.cy.ts: с историей из
+ * базы страница длиннее экрана, и центр body, куда Cypress целит событие,
+ * оказывается под шапкой. Таймер слушает window, и событие с document до него
+ * всплывает.
  */
 function solveOnce(holdMs: number) {
-  cy.get("body").trigger("keydown", { code: "Space" });
+  cy.document().trigger("keydown", { code: "Space" });
   timer().should("have.attr", "data-state", "READY");
-  cy.get("body").trigger("keyup", { code: "Space" });
+  cy.document().trigger("keyup", { code: "Space" });
   timer().should("have.attr", "data-state", "RUNNING");
   cy.wait(holdMs);
-  cy.get("body").trigger("keydown", { code: "Space" });
+  cy.document().trigger("keydown", { code: "Space" });
   timer().should("have.attr", "data-state", "STOPPED");
   cy.wait("@saveSolve").its("response.statusCode").should("eq", 200);
-  cy.get("body").trigger("keyup", { code: "Space" });
+  cy.document().trigger("keyup", { code: "Space" });
   timer().should("have.attr", "data-state", "IDLE");
   timer().find('[role="alert"]').should("not.exist");
 }
