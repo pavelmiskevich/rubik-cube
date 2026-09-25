@@ -48,3 +48,7 @@ next-env.d.ts
 # рабочие деревья агентов и снимки браузерных проверок — локальные
 /.claude/worktrees/
 /.playwright-mcp/
+
+# снимки и видео упавших сквозных сценариев
+/cypress/screenshots/
+/cypress/videos/

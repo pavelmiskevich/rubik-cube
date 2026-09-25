@@ -64,3 +64,67 @@ jobs:
           done
           docker compose logs
           exit 1
+
+  # Сквозные сценарии на каждом PR (#96). Отдельным job'ом, а не шагом build:
+  # идут параллельно со сборкой образа, и проверка PR удлиняется на разницу,
+  # а не на сумму. База — service-контейнер: вход, запись сборок и слияние
+  # прогресса проверяются на настоящем Postgres с миграциями из репозитория.
+  # Приложение — production-сборка (standalone, как в образе), а не next dev:
+  # ближе к тому, что выкладывается, и маршруты не компилируются на лету.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        # Учётные данные одноразовой базы этого job'а, не секреты.
+        env:
+          POSTGRES_USER: e2e
+          POSTGRES_PASSWORD: e2e
+          POSTGRES_DB: e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U e2e"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://e2e:e2e@localhost:5432/e2e?schema=public
+      # Только для этого прогона: подписывает сессии тестового сервера.
+      AUTH_SECRET: e2e-only-not-a-real-secret
+      AUTH_URL: http://localhost:3000
+      AUTH_GOOGLE_ID: ci
+      AUTH_GOOGLE_SECRET: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Migrate database
+        run: npx prisma migrate deploy
+
+      - name: Build
+        # Standalone-сервер не раздаёт статику сам — её кладут рядом, как в
+        # Dockerfile.
+        run: |
+          npm run build
+          cp -r .next/static .next/standalone/.next/
+          cp -r public .next/standalone/
+
+      # Оба набора: без базы (cypress/e2e/*.cy.ts) и с базой (cypress/e2e/db/).
+      - name: E2E tests
+        run: npm run test:e2e:ci
+
+      - name: Upload screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-screenshots
+          path: cypress/screenshots
+          if-no-files-found: ignore
