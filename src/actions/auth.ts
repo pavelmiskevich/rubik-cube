@@ -6,6 +6,7 @@ import { z } from "zod";
 import { signIn } from "@/auth";
 import { AuthError } from "next-auth";
 import { getClientIp, rateLimit } from "@/lib/rate-limit";
+import { LOGIN_RATE_LIMITED } from "@/lib/loginThrottle";
 
 const registerSchema = z.object({
   name: z.string().trim().min(2, "Имя должно содержать минимум 2 символа"),
@@ -15,7 +16,6 @@ const registerSchema = z.object({
 
 const WINDOW_MS = 15 * 60 * 1000;
 const REGISTER_LIMIT = 5;
-const LOGIN_LIMIT = 10;
 
 const TOO_MANY_ATTEMPTS = "Слишком много попыток. Попробуйте позже.";
 
@@ -60,12 +60,9 @@ export async function registerUser(formData: FormData) {
   }
 }
 
+// Лимит входа — в authorize (src/lib/loginThrottle.ts): форма лишь одна из
+// дорог к проверке пароля, адрес входа библиотеки принимает запросы и напрямую.
 export async function loginUser(formData: FormData) {
-  const ip = await getClientIp();
-  if (!rateLimit(`login:${ip}`, { limit: LOGIN_LIMIT, windowMs: WINDOW_MS }).allowed) {
-    return { error: TOO_MANY_ATTEMPTS };
-  }
-
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
 
@@ -76,7 +73,9 @@ export async function loginUser(formData: FormData) {
     if (error instanceof AuthError) {
       switch (error.type) {
         case "CredentialsSignin":
-          return { error: "Неверный email или пароль" };
+          return (error as { code?: string }).code === LOGIN_RATE_LIMITED
+            ? { error: TOO_MANY_ATTEMPTS }
+            : { error: "Неверный email или пароль" };
         default:
           return { error: "Что-то пошло не так" };
       }

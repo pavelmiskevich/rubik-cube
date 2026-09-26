@@ -2,7 +2,8 @@
  * Регистрация и вход — публичные серверные действия, их дёргают с любым
  * содержимым формы и с любой частотой. Тесты закрепляют, что форма не
  * выдаёт, занят ли адрес, что поля проверяются до записи, и что попытки с
- * одного адреса ограничены. Ограничитель настоящий — подменены только
+ * одного адреса ограничены. Лимит входа живёт в authorize (#101) и закреплён
+ * в src/auth.test.ts; здесь — только то, как форма показывает его отказ. Ограничитель настоящий — подменены только
  * заголовки запроса. Его счётчики живут в памяти модуля, поэтому каждый тест
  * приходит со своего адреса и начинает с нуля.
  */
@@ -215,35 +216,29 @@ describe("loginUser", () => {
     await expect(loginUser(form(valid))).rejects.toBe(redirect);
   });
 
-  it("десять попыток с одного адреса за окно, одиннадцатая отклоняется без signIn", async () => {
+  it("отказ по лимиту (код rate_limited) — «Слишком много попыток», а не «неверный пароль»", async () => {
+    signIn.mockRejectedValue(
+      Object.assign(new MockAuthError("CredentialsSignin"), { code: "rate_limited" })
+    );
+
+    const result = await loginUser(form(valid));
+
+    expect(result).toEqual({ error: TOO_MANY_ATTEMPTS });
+  });
+
+  it("форма сама попытки не считает: лимит — в authorize, одиннадцатая доходит до signIn", async () => {
     signIn.mockRejectedValue(new MockAuthError("CredentialsSignin"));
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 11; i++) {
       expect(await loginUser(form(valid))).toEqual({ error: "Неверный email или пароль" });
     }
 
-    expect(await loginUser(form(valid))).toEqual({ error: TOO_MANY_ATTEMPTS });
-    expect(signIn).toHaveBeenCalledTimes(10);
+    expect(signIn).toHaveBeenCalledTimes(11);
   });
 
-  it("счётчики входа и регистрации раздельные", async () => {
+  it("неудачные входы не расходуют лимит регистрации", async () => {
     signIn.mockRejectedValue(new MockAuthError("CredentialsSignin"));
     for (let i = 0; i < 10; i++) await loginUser(form(valid));
 
     expect(await registerUser(form(valid))).toEqual({ success: true });
-  });
-
-  it("с концом окна попытки снова разрешены", async () => {
-    jest.useFakeTimers({ now: new Date("2026-01-01T00:00:00Z") });
-    try {
-      signIn.mockRejectedValue(new MockAuthError("CredentialsSignin"));
-      for (let i = 0; i < 11; i++) await loginUser(form(valid));
-      expect(await loginUser(form(valid))).toEqual({ error: TOO_MANY_ATTEMPTS });
-
-      jest.advanceTimersByTime(15 * 60 * 1000);
-
-      expect(await loginUser(form(valid))).toEqual({ error: "Неверный email или пароль" });
-    } finally {
-      jest.useRealTimers();
-    }
   });
 });
