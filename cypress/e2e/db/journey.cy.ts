@@ -69,6 +69,17 @@ function playToEnd() {
 const timer = () => cy.get('[data-testid="timer"]');
 
 /**
+ * Таймер слушает клавиши с эффекта, а не с гидратации: разметка может уже
+ * ожить, а обработчика на window ещё нет, и первое нажатие пропадёт. Скрамбл
+ * появляется из эффекта соседнего компонента того же коммита — когда он на
+ * экране, клавиши таймера уже слушаются (так же ждёт timer.cy.ts).
+ */
+function timerReady() {
+  cy.get('[data-testid="scramble"]').should("not.have.text", "Генерация...");
+  timer().should("have.attr", "data-state", "IDLE");
+}
+
+/**
  * Одна сборка клавиатурой: удержать пробел, отпустить, выждать, нажать. Ждём
  * ответа серверного действия saveSolve: без него переход на /stats обогнал бы
  * запись.
@@ -158,7 +169,7 @@ describe("Путь человека с базой", () => {
 
     cy.log("**Пять сборок на таймере**");
     cy.visit("/timer");
-    hydrated('[data-testid="timer"]');
+    timerReady();
     cy.contains("Результаты сохраняются только для вошедших").should("not.exist");
     for (const holdMs of [300, 700, 500, 900, 400]) solveOnce(holdMs);
     cy.get('[data-testid="solve-list"] li').should("have.length", 5);
@@ -189,7 +200,7 @@ describe("Путь человека с базой", () => {
     cy.location("pathname").should("eq", "/timer");
     cy.location("search").should("eq", "?lesson=paired-layers");
     cy.get('[data-testid="practice-lesson"]').should("have.text", "Первые два слоя парами");
-    hydrated('[data-testid="timer"]');
+    timerReady();
     // История из базы подхватилась и здесь.
     cy.get('[data-testid="solve-list"] li').should("have.length", 5);
     solveOnce(600);
