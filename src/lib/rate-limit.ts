@@ -10,9 +10,23 @@ import { headers } from "next/headers";
  */
 type Bucket = { count: number; expiresAt: number };
 
-const buckets = new Map<string, Bucket>();
+/*
+  One map per process, not per module instance. Next bundles route handlers
+  and page server actions into separate layers, each with its own copy of this
+  module: a map in module scope gave the login endpoint and the login form two
+  independent counters, doubling an attacker's budget (#101). Unlike the Prisma
+  client, this is kept on globalThis in production too — that is the point.
+*/
+const globalForRateLimit = globalThis as unknown as {
+  rateLimitBuckets?: Map<string, Bucket>;
+};
+const buckets = (globalForRateLimit.rateLimitBuckets ??= new Map<string, Bucket>());
 
-/** Hard cap so a flood of unique keys cannot grow the map without bound. */
+/**
+ * Soft cap: past it, a new key first sweeps out expired windows. Live
+ * windows are never evicted — otherwise a flood of junk keys would lift a
+ * block — so under such a flood the map still grows (TECHDEBT, rate limiter).
+ */
 const MAX_BUCKETS = 10_000;
 
 function sweep(now: number) {
@@ -42,6 +56,39 @@ export function rateLimit(
 
   bucket.count += 1;
   return { allowed: true, retryAfterMs: 0 };
+}
+
+/*
+  The three calls below split rateLimit() in two, for limits that count only
+  failures: check before the attempt without spending it, record the failure
+  after. A success then costs nothing, and can clear its own counter.
+*/
+
+/** Whether `key` has used up `limit` failures in its current window. Spends nothing. */
+export function checkLimit(key: string, { limit }: { limit: number }): RateLimitResult {
+  const now = Date.now();
+  const bucket = buckets.get(key);
+  if (!bucket || bucket.expiresAt <= now || bucket.count < limit) {
+    return { allowed: true, retryAfterMs: 0 };
+  }
+  return { allowed: false, retryAfterMs: bucket.expiresAt - now };
+}
+
+/** Count one failure against `key`; the window opens with the first one. */
+export function recordFailure(key: string, { windowMs }: { windowMs: number }): void {
+  const now = Date.now();
+  const bucket = buckets.get(key);
+  if (!bucket || bucket.expiresAt <= now) {
+    if (buckets.size >= MAX_BUCKETS) sweep(now);
+    buckets.set(key, { count: 1, expiresAt: now + windowMs });
+    return;
+  }
+  bucket.count += 1;
+}
+
+/** Forget `key`'s failures — after a success that proves the caller legitimate. */
+export function resetLimit(key: string): void {
+  buckets.delete(key);
 }
 
 /**
