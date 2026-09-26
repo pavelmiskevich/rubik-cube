@@ -13,7 +13,9 @@
     "test": "jest",
     "prepare": "husky",
     "postinstall": "prisma generate",
-    "test:e2e": "start-server-and-test dev http://localhost:3000 \"cypress run\""
+    "test:e2e": "start-server-and-test dev http://localhost:3000 \"cypress run\"",
+    "test:e2e:db": "start-server-and-test dev http://localhost:3000 \"cypress run --config specPattern=cypress/e2e/db/*.cy.ts\"",
+    "test:e2e:ci": "start-server-and-test \"node .next/standalone/server.js\" http://localhost:3000 \"cypress run --config specPattern=cypress/e2e/**/*.cy.ts\""
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.3",

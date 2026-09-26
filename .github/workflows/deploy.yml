@@ -52,7 +52,12 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      # Набор без базы (cypress/e2e/*.cy.ts). Секрет — только для этого
+      # прогона: без него вход на next dev отвечает ошибкой конфигурации, и
+      # обход страниц ловит её в консоли браузера.
       - name: E2E tests
+        env:
+          AUTH_SECRET: e2e-only-not-a-real-secret
         run: npm run test:e2e
 
       - name: Build
