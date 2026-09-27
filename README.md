@@ -11,7 +11,7 @@
 [![Лицензия MIT](https://img.shields.io/badge/%D0%9B%D0%B8%D1%86%D0%B5%D0%BD%D0%B7%D0%B8%D1%8F-MIT-3DA639)](LICENSE)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org/)
 [![three.js](https://img.shields.io/badge/three.js-r185-000000?logo=threedotjs&logoColor=white)](https://threejs.org/)
-[![Тесты](https://img.shields.io/badge/%D1%82%D0%B5%D1%81%D1%82%D1%8B-2462%20%2B%2012-729B1B?logo=jest&logoColor=white)](#проверка)
+[![Тесты](https://img.shields.io/badge/%D1%82%D0%B5%D1%81%D1%82%D1%8B-2485%20%2B%2015-729B1B?logo=jest&logoColor=white)](#проверка)
 [![Поддержать](https://img.shields.io/badge/%D0%9F%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B0%D1%82%D1%8C-CloudTips-9B6BFF?logo=buymeacoffee&logoColor=white)](https://pay.cloudtips.ru/p/9ddf6429)
 
 ![Урок «Белый верх в два захода»](docs/shots/lesson.png)
@@ -167,9 +167,9 @@ npm run dev
 ## Проверка
 
 ```bash
-npm test               # 2462 юнит- и компонентных теста в 50 наборах
+npm test               # 2485 юнит- и компонентных тестов в 51 наборе
 npm run test:e2e       # сквозные сценарии без базы, поверх dev-сервера
-npm run test:e2e:db    # приёмочный сценарий с базой (нужен DATABASE_URL)
+npm run test:e2e:db    # сценарии с базой: путь человека и лимит входа (нужен DATABASE_URL)
 npm run lint
 npx tsc --noEmit
 ```
