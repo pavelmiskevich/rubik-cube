@@ -1,9 +1,9 @@
-import { auth, signOut } from "@/auth";
+import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import Image from "next/image";
-import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import LocalProgressMerge from "@/components/learn/LocalProgressMerge";
+import SignOutButton from "@/components/SignOutButton";
 
 export default async function ProfilePage() {
   const session = await auth();
@@ -19,16 +19,7 @@ export default async function ProfilePage() {
       <Card className="space-y-8">
         <div className="flex flex-wrap items-center justify-between gap-4 border-b pb-6">
           <h1 className="text-2xl font-bold">Профиль</h1>
-          <form
-            action={async () => {
-              "use server";
-              await signOut({ redirectTo: "/" });
-            }}
-          >
-            <Button type="submit" variant="danger">
-              Выйти
-            </Button>
-          </form>
+          <SignOutButton />
         </div>
 
         <div className="flex items-center gap-6">
