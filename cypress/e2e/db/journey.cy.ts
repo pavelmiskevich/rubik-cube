@@ -227,7 +227,7 @@ describe("Путь человека с базой", () => {
 
     cy.log("**Выход и ещё шаг без входа**");
     cy.visit("/profile");
-    hydrated('main form button[type="submit"]').click();
+    hydrated('main button:contains("Выйти")').click();
     cy.location("pathname").should("eq", "/");
     cy.visit("/stats");
     cy.contains("Статистика появится после входа").should("be.visible");
