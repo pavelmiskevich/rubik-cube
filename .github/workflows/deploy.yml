@@ -1,19 +1,18 @@
 name: Deploy
 
+# Выкладывается опубликованный релиз GitHub (#106): тег vX.Y.Z на коммите из
+# main. Вливание в main само ничего не выкладывает — его проверяет ci.yml.
 on:
-  push:
-    branches:
-      - main
-    # Пуш только из документации не выкладывается: приложение не читает ни .md,
-    # ни docs/, образ был бы тем же, а выкладка всё равно ждала бы подтверждения
-    # владельца. Пуш, где рядом с ними есть код, выкладывается как обычно.
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'LICENSE'
-  # Ручной запуск — например, повторить выкладку после сбоя сети. Выкладывается
-  # только main: job'ы ниже проверяют ref.
+  release:
+    types: [published]
+  # Повтор выкладки после сбоя и откат на прежнюю версию: запуск с main, тег —
+  # параметром. Ключ и скрипт на сервере те же, выкладывается SHA тега.
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Тег релиза, например v1.2.0"
+        required: true
+        type: string
 
 # One deploy at a time, and never cancel one that has started: the stack runs
 # `prisma migrate deploy` on the way up, and interrupting that leaves the
@@ -26,11 +25,65 @@ permissions:
   contents: read
 
 jobs:
+  # Какой коммит выкладывать. Тег — строго vX.Y.Z и на первой линии истории
+  # main: коммит из ветки PR тоже предок main, но проверялся не он, а
+  # merge-коммит. Пре-релиз не выкладывается вовсе.
+  release:
+    if: github.event_name != 'release' || !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release tag
+        id: resolve
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -eu
+          if [ "$EVENT" = release ]; then
+            TAG="$RELEASE_TAG"
+          else
+            # Ручной запуск — только с main: окружение production пускает
+            # ветку main и теги v*, а файл workflow берётся с запущенной ветки.
+            if [ "$REF" != refs/heads/main ]; then
+              echo "::error::Ручная выкладка запускается с main, а не с $REF"
+              exit 1
+            fi
+            TAG="$INPUT_TAG"
+          fi
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Тег «$TAG» не вида vX.Y.Z"
+            exit 1
+          fi
+          SHA=$(git rev-parse --verify --quiet "refs/tags/$TAG^{commit}") || {
+            echo "::error::Тега $TAG нет"
+            exit 1
+          }
+          if ! git rev-list --first-parent origin/main | grep -qx "$SHA"; then
+            echo "::error::$TAG ($SHA) не на первой линии истории main"
+            exit 1
+          fi
+          echo "Выкладывается $TAG = $SHA"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
   verify:
+    needs: release
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -66,10 +119,10 @@ jobs:
   # Образы собираются здесь, а не на сервере: next build берёт 1,5–2 ГБ памяти,
   # а сервер общий, и сборка на нём рискует задеть соседние проекты.
   publish:
-    needs: verify
+    needs: [release, verify]
     # Выключатель — переменная репозитория, а не окружения: условие job'а
     # вычисляется раньше, чем применяется окружение (#26).
-    if: vars.DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    if: vars.DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -77,6 +130,8 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.sha }}
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
@@ -93,7 +148,11 @@ jobs:
           context: .
           target: runner
           push: true
-          tags: ghcr.io/pavelmiskevich/rubik-cube:${{ github.sha }}
+          # SHA — то, что выкладывает сервер; тег версии — чтобы по реестру было
+          # видно, какой релиз в каком образе.
+          tags: |
+            ghcr.io/pavelmiskevich/rubik-cube:${{ needs.release.outputs.sha }}
+            ghcr.io/pavelmiskevich/rubik-cube:${{ needs.release.outputs.tag }}
           labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
           cache-from: type=gha,scope=rubik-cube
           cache-to: type=gha,scope=rubik-cube,mode=max
@@ -106,18 +165,20 @@ jobs:
           context: .
           target: builder
           push: true
-          tags: ghcr.io/pavelmiskevich/rubik-cube:migrate-${{ github.sha }}
+          tags: ghcr.io/pavelmiskevich/rubik-cube:migrate-${{ needs.release.outputs.sha }}
           labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
           cache-from: type=gha,scope=rubik-cube
 
   deploy:
-    needs: publish
-    if: vars.DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    needs: [release, publish]
+    if: vars.DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # Секреты SSH живут в окружении production, и оно же требует подтверждения
-    # владельца перед выкладкой.
-    environment: production
+    # владельца перед выкладкой и пускает только ветку main и теги v*.
+    environment:
+      name: production
+      url: https://rubik-cube.miskevich.ru/
     steps:
       # Ключ на сервере привязан к одной команде: «deploy <SHA>» запускает
       # скрипт выкладки (deploy/rubik-cube-deploy), и больше этот ключ ничего не
@@ -129,6 +190,7 @@ jobs:
           SSH_USER: ${{ secrets.SSH_USER }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          SHA: ${{ needs.release.outputs.sha }}
         run: |
           set -eu
           install -m 700 -d ~/.ssh
@@ -139,4 +201,4 @@ jobs:
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
           ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" \
             -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o BatchMode=yes \
-            "$SSH_USER@$SSH_HOST" "deploy $GITHUB_SHA"
+            "$SSH_USER@$SSH_HOST" "deploy $SHA"
