@@ -1,0 +1,85 @@
+name: Backup
+
+# Копия прод-базы вне сервера (#109). Сервер каждую ночь делает дамп,
+# проверяет его восстановлением и шифрует открытым ключом владельца
+# (deploy/rubik-cube-backup). Этот workflow забирает зашифрованный файл и
+# хранит артефактом 90 дней. Расшифровать его может только закрытый ключ
+# владельца: ни GitHub, ни раннер содержимого не видят.
+#
+# Упавший запуск — это письмо владельцу: значит, копии перестали делаться
+# или забираться.
+on:
+  schedule:
+    - cron: "10 4 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    # Выключатель, как DEPLOY_ENABLED у выкладки: до настройки сервера
+    # workflow не делает ничего и не падает каждую ночь.
+    if: vars.BACKUP_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Ключ забора — в своём окружении, отдельно от ключа выкладки: он умеет
+    # только отдать шифротекст.
+    environment: backup
+    steps:
+      - name: Fetch encrypted dump
+        id: fetch
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          set -eu
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/backup_key
+          chmod 600 ~/.ssh/backup_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          remote() {
+            ssh -i ~/.ssh/backup_key -p "$SSH_PORT" \
+              -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o BatchMode=yes \
+              "$SSH_USER@$SSH_HOST" "$1"
+          }
+
+          stamp=$(remote stamp)
+          if ! printf '%s' "$stamp" | grep -Eq '^[0-9]{8}T[0-9]{6}Z$'; then
+            echo "::error::Метка копии не того вида: «$stamp»"
+            exit 1
+          fi
+          made=$(date -u -d "${stamp:0:4}-${stamp:4:2}-${stamp:6:2}T${stamp:9:2}:${stamp:11:2}:${stamp:13:2}Z" +%s)
+          age_hours=$(( ($(date -u +%s) - made) / 3600 ))
+          # Таймер на сервере — раз в сутки; копия старше 26 часов значит, что
+          # он не сработал или скрипт падает.
+          if [ "$age_hours" -gt 26 ]; then
+            echo "::error::Последней копии $age_hours ч ($stamp): на сервере копии не делаются"
+            exit 1
+          fi
+
+          mkdir backup
+          file="backup/rubik-cube-$stamp.dump.age"
+          remote latest > "$file"
+          if [ "$(head -c 21 "$file")" != "age-encryption.org/v1" ]; then
+            echo "::error::Пришёл не файл age — копия не зашифрована или повреждена"
+            exit 1
+          fi
+          echo "Копия $stamp, $(du -h "$file" | cut -f1), ей $age_hours ч"
+          echo "stamp=$stamp" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ steps.fetch.outputs.stamp }}
+          path: backup/
+          retention-days: 90
+          if-no-files-found: error
+          # Шифротекст не сжимается.
+          compression-level: 0
