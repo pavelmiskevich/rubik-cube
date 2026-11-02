@@ -29,9 +29,15 @@ readonly BACKUP_KEEP=${BACKUP_KEEP:-14}
 readonly BACKUP_CHECK_IMAGE=${BACKUP_CHECK_IMAGE:-postgres:16-alpine}
 readonly RECIPIENTS="$DIR/backup-recipients.txt"
 
+umask 077
+mkdir -p "$BACKUP_ROOT"
+chmod 700 "$BACKUP_ROOT"
+
 # Дамп и проверка — это секунды; второй запуск поверх первого перепутал бы
-# файлы на забор.
-exec 9>/run/lock/rubik-cube-backup.lock
+# файлы на забор. Блокировка — на самом каталоге копий, а не файлом в
+# /run/lock: туда пишет любой пользователь, и чужой заранее созданный и
+# занятый файл молча остановил бы копии.
+exec 9<"$BACKUP_ROOT"
 if ! flock -n 9; then
   echo "Резервная копия уже делается" >&2
   exit 1
@@ -66,9 +72,6 @@ FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename
 \gexec
 SQL
 }
-
-umask 077
-mkdir -p "$BACKUP_ROOT"
 
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 dump="$BACKUP_ROOT/rubik-cube-$stamp.dump"

@@ -145,6 +145,15 @@ mv "$work/recipients.bak" "$app/backup-recipients.txt"
 untouched "без ключа"
 ok "без открытого ключа — отказ"
 
+flock -n "$backups" sleep 30 &
+holder=$!
+sleep 1
+if run_backup >/dev/null 2>&1; then fail "второй запуск поверх идущего не отвергнут"; fi
+kill "$holder"
+wait "$holder" 2>/dev/null || true
+untouched "параллельный запуск"
+ok "параллельный запуск отвергнут"
+
 compose stop db >/dev/null 2>&1
 if run_backup >/dev/null 2>&1; then fail "при остановленной базе копия сделана"; fi
 untouched "база остановлена"
