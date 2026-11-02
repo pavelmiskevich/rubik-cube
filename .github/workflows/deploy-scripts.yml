@@ -1,0 +1,38 @@
+name: Deploy scripts
+
+# Скрипты сервера (deploy/) сами на сервер не попадают — их ставит
+# администратор, — и проверить их, кроме как здесь, негде. Копия, которая
+# тихо перестала восстанавливаться, хуже, чем никакой (#109).
+on:
+  pull_request:
+    paths:
+      - "deploy/**"
+      - ".github/workflows/deploy-scripts.yml"
+  push:
+    branches: [main]
+    paths:
+      - "deploy/**"
+      - ".github/workflows/deploy-scripts.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  scripts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ShellCheck
+        run: >
+          shellcheck deploy/rubik-cube-deploy deploy/rubik-cube-deploy-ssh
+          deploy/rubik-cube-backup deploy/rubik-cube-backup-ssh
+          deploy/test/backup.test.sh
+
+      - name: Install age
+        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends age
+
+      # От root, как скрипт работает на сервере.
+      - name: Backup script test
+        run: sudo bash deploy/test/backup.test.sh

@@ -1,0 +1,15 @@
+# /etc/systemd/system/rubik-cube-backup.timer — владелец root, права 644 (#109).
+# Включить: systemctl enable --now rubik-cube-backup.timer
+[Unit]
+Description=Ежедневная резервная копия базы rubik-cube
+
+[Timer]
+# Раньше, чем копию забирает workflow Backup (04:10 UTC): к его приходу она
+# свежая.
+OnCalendar=*-*-* 02:30:00 UTC
+RandomizedDelaySec=15m
+# Сервер был выключен в 02:30 — копия делается сразу после загрузки.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

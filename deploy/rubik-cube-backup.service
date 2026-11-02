@@ -1,0 +1,13 @@
+# /etc/systemd/system/rubik-cube-backup.service — владелец root, права 644 (#109).
+# Запускается таймером rubik-cube-backup.timer; руками — systemctl start.
+[Unit]
+Description=Резервная копия базы rubik-cube
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/rubik-cube-backup
+# Сервер общий: копия уступает процессор и диск соседям.
+Nice=10
+IOSchedulingClass=idle

@@ -1,0 +1,162 @@
+#!/bin/bash
+# Резервная копия прод-базы rubik-cube (#109).
+#
+# Ставится в /usr/local/bin/rubik-cube-backup: владелец root, права 755.
+# Запускает таймер systemd rubik-cube-backup.timer раз в сутки; руками —
+# `sudo systemctl start rubik-cube-backup`, итог — в `journalctl -u
+# rubik-cube-backup`.
+#
+# Что делает:
+#   1. pg_dump изнутри контейнера базы — пароль из .env скрипту не нужен.
+#   2. Восстанавливает дамп в одноразовый контейнер без сети и сверяет число
+#      строк в каждой таблице с живой базой. Дамп, который не восстановился,
+#      копией не считается: запуск падает, прежние копии не трогаются.
+#   3. Хранит BACKUP_KEEP последних дампов в BACKUP_ROOT (только root).
+#   4. Шифрует последний дамп открытыми ключами age из backup-recipients.txt и
+#      кладёт на забор в BACKUP_OUTGOING: оттуда его отдаёт
+#      rubik-cube-backup-ssh пользователю rubik-backup. Закрытого ключа на
+#      сервере нет.
+#
+# Переменные окружения нужны только тестам (deploy/test/backup.test.sh); на
+# сервере работают значения по умолчанию.
+set -euo pipefail
+
+readonly DIR=${RUBIK_DIR:-/opt/rubik-cube}
+readonly BACKUP_ROOT=${BACKUP_ROOT:-/var/backups/rubik-cube}
+readonly BACKUP_OUTGOING=${BACKUP_OUTGOING:-/var/lib/rubik-cube-backup}
+readonly BACKUP_GROUP=${BACKUP_GROUP:-rubik-backup}
+readonly BACKUP_KEEP=${BACKUP_KEEP:-14}
+readonly BACKUP_CHECK_IMAGE=${BACKUP_CHECK_IMAGE:-postgres:16-alpine}
+readonly RECIPIENTS="$DIR/backup-recipients.txt"
+
+umask 077
+mkdir -p "$BACKUP_ROOT"
+chmod 700 "$BACKUP_ROOT"
+
+# Дамп и проверка — это секунды; второй запуск поверх первого перепутал бы
+# файлы на забор. Блокировка — на самом каталоге копий, а не файлом в
+# /run/lock: туда пишет любой пользователь, и чужой заранее созданный и
+# занятый файл молча остановил бы копии.
+exec 9<"$BACKUP_ROOT"
+if ! flock -n 9; then
+  echo "Резервная копия уже делается" >&2
+  exit 1
+fi
+
+if [[ ! -s "$RECIPIENTS" ]]; then
+  echo "Нет $RECIPIENTS: зашифровать копию нечем" >&2
+  exit 1
+fi
+
+compose() {
+  docker compose --project-directory "$DIR" -f "$DIR/docker-compose.yml" \
+    --env-file "$DIR/.env" --env-file "$DIR/image.env" "$@"
+}
+
+# psql в живой базе: учётные данные — из окружения контейнера базы, поэтому
+# кавычки одинарные — переменные раскрывает shell контейнера, а не хоста.
+# shellcheck disable=SC2016
+live_psql() {
+  compose exec -T db sh -c 'exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -X -At -v ON_ERROR_STOP=1'
+}
+
+check_psql() {
+  docker exec -i "$check" psql -U check -d check -X -At -v ON_ERROR_STOP=1
+}
+
+# Строки «таблица число» по всем таблицам схемы public, точным count(*).
+row_counts() {
+  "$1" <<'SQL'
+SELECT format('SELECT %L || '' '' || count(*) FROM %I.%I', tablename, schemaname, tablename)
+FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename
+\gexec
+SQL
+}
+
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+dump="$BACKUP_ROOT/rubik-cube-$stamp.dump"
+work=$(mktemp -d "$BACKUP_ROOT/.work-XXXXXX")
+check="rubik-cube-backup-check-$$"
+
+cleanup() {
+  docker rm -f -v "$check" >/dev/null 2>&1 || true
+  rm -rf "$work"
+}
+trap cleanup EXIT
+
+# Число строк до и после дампа: снимок, который делает pg_dump, лежит между
+# ними, и в восстановленной базе каждой таблицы должно быть не меньше и не
+# больше, чем в этих двух замерах.
+row_counts live_psql > "$work/before"
+# shellcheck disable=SC2016 # раскрывает shell контейнера, как в live_psql
+compose exec -T db sh -c \
+  'exec pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom --no-owner --no-acl' \
+  > "$work/dump"
+row_counts live_psql > "$work/after"
+
+if [[ ! -s "$work/before" ]]; then
+  echo "В базе нет ни одной таблицы — дамп не той базы?" >&2
+  exit 1
+fi
+
+# Одноразовый Postgres: без сети, с потолком памяти, его том удаляется вместе
+# с ним. Сервер общий — проверка не должна задеть соседей.
+docker run -d --name "$check" --network none --memory 256m \
+  -e POSTGRES_USER=check -e POSTGRES_PASSWORD=check -e POSTGRES_DB=check \
+  "$BACKUP_CHECK_IMAGE" >/dev/null
+
+# Готовность — по TCP: временный сервер, которым образ инициализирует базу,
+# слушает только сокет, и проверка через сокет ловила бы его перед рестартом.
+ready=""
+for _ in $(seq 1 60); do
+  if docker exec "$check" pg_isready -q -h 127.0.0.1 -U check -d check; then
+    ready=yes
+    break
+  fi
+  sleep 1
+done
+[[ -n "$ready" ]] || { echo "Проверочная база не поднялась за 60 секунд" >&2; exit 1; }
+
+docker exec -i "$check" pg_restore -U check -d check --no-owner --no-acl --exit-on-error \
+  < "$work/dump"
+row_counts check_psql > "$work/restored"
+
+if ! awk '
+  FNR == 1 { file++ }
+  { count[file, $1] = $2; tables[$1] = 1 }
+  END {
+    for (t in tables) {
+      before = count[1, t] + 0; after = count[2, t] + 0
+      low = before < after ? before : after
+      high = before < after ? after : before
+      if (!((3, t) in count) || count[3, t] < low || count[3, t] > high) {
+        printf "Таблица %s: в базе %d…%d строк, в копии %s\n", t, low, high, count[3, t] > "/dev/stderr"
+        bad = 1
+      }
+    }
+    exit bad
+  }' "$work/before" "$work/after" "$work/restored"; then
+  echo "Копия не совпала с базой — не сохранена" >&2
+  exit 1
+fi
+
+mv "$work/dump" "$dump"
+
+# Ротация: имена с меткой UTC сортируются по времени.
+find "$BACKUP_ROOT" -maxdepth 1 -name 'rubik-cube-*.dump' -printf '%f\n' \
+  | sort -r | tail -n +"$((BACKUP_KEEP + 1))" \
+  | while read -r old; do rm -f -- "$BACKUP_ROOT/$old"; done
+
+# На забор — только зашифрованное. Файл и метка подменяются атомарно, и метка
+# идёт второй: читатель никогда не увидит метку новее файла.
+install -d -m 750 -g "$BACKUP_GROUP" "$BACKUP_OUTGOING"
+age -R "$RECIPIENTS" -o "$BACKUP_OUTGOING/.latest.partial" "$dump"
+printf '%s\n' "$stamp" > "$BACKUP_OUTGOING/.stamp.partial"
+chgrp "$BACKUP_GROUP" "$BACKUP_OUTGOING/.latest.partial" "$BACKUP_OUTGOING/.stamp.partial"
+chmod 640 "$BACKUP_OUTGOING/.latest.partial" "$BACKUP_OUTGOING/.stamp.partial"
+mv "$BACKUP_OUTGOING/.latest.partial" "$BACKUP_OUTGOING/latest.dump.age"
+mv "$BACKUP_OUTGOING/.stamp.partial" "$BACKUP_OUTGOING/latest.stamp"
+
+tables=$(wc -l < "$work/restored")
+rows=$(awk '{ sum += $2 } END { print sum + 0 }' "$work/restored")
+echo "Копия $stamp: $(du -h "$dump" | cut -f1), таблиц $tables, строк $rows — восстановление проверено"

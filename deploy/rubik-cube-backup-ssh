@@ -1,0 +1,25 @@
+#!/bin/bash
+# Принудительная команда SSH-ключа пользователя rubik-backup (#109).
+#
+# Ставится в /usr/local/bin/rubik-cube-backup-ssh: владелец root, права 755.
+# В ~rubik-backup/.ssh/authorized_keys ключ записан так:
+#   command="/usr/local/bin/rubik-cube-backup-ssh",restrict ssh-ed25519 AAAA… rubik-cube-backup
+# Ключ умеет ровно две вещи — и обе только читают уже зашифрованное:
+#   stamp   — метка времени последней копии (UTC, 20261101T023000Z);
+#   latest  — сама копия, зашифрованная ключом владельца.
+# Ни шелла, ни Docker, ни базы: даже утёкший ключ отдаст только шифротекст.
+set -euo pipefail
+
+readonly OUTGOING=/var/lib/rubik-cube-backup
+
+read -r verb extra <<< "${SSH_ORIGINAL_COMMAND:-}"
+
+if [[ -z "${extra:-}" ]]; then
+  case "${verb:-}" in
+    stamp) exec cat "$OUTGOING/latest.stamp" ;;
+    latest) exec cat "$OUTGOING/latest.dump.age" ;;
+  esac
+fi
+
+echo "Разрешены только команды: stamp, latest" >&2
+exit 2
