@@ -27,6 +27,13 @@ const nextConfig = {
           браузер всё равно спросит.
         */
         { key: "Permissions-Policy", value: "camera=(self), microphone=(), geolocation=()" },
+        /*
+          Только HTTPS на год. Без includeSubDomains и preload: домен общий с
+          соседними проектами, и заголовок не должен обязывать их к HTTPS.
+          По HTTP браузер заголовок не принимает, так что localhost он не
+          задевает.
+        */
+        { key: "Strict-Transport-Security", value: "max-age=31536000" },
       ],
     }];
   },

@@ -58,6 +58,17 @@ describe("Обход страниц", () => {
       .should("eq", 404);
   });
 
+  it("заголовки безопасности на месте", () => {
+    cy.request("/").then(({ headers }) => {
+      expect(headers["strict-transport-security"]).to.eq("max-age=31536000");
+      expect(headers["x-content-type-options"]).to.eq("nosniff");
+      expect(headers["x-frame-options"]).to.eq("DENY");
+      expect(headers["referrer-policy"]).to.eq("strict-origin-when-cross-origin");
+      expect(headers["permissions-policy"]).to.eq("camera=(self), microphone=(), geolocation=()");
+      expect(headers, "версия фреймворка не выдаётся").not.to.have.property("x-powered-by");
+    });
+  });
+
   it("страницы без ошибок в консоли", () => {
     for (const path of PAGES) visitClean(path, CUBE_PAGES.has(path));
   });
