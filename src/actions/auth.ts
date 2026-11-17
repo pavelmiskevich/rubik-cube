@@ -7,11 +7,33 @@ import { signIn } from "@/auth";
 import { AuthError } from "next-auth";
 import { getClientIp, rateLimit } from "@/lib/rate-limit";
 import { LOGIN_RATE_LIMITED } from "@/lib/loginThrottle";
+import {
+  EMAIL_MAX_LENGTH,
+  NAME_MAX_LENGTH,
+  PASSWORD_MAX_BYTES,
+  PASSWORD_MIN_LENGTH,
+  passwordFits,
+} from "@/lib/credentialLimits";
 
 const registerSchema = z.object({
-  name: z.string().trim().min(2, "Имя должно содержать минимум 2 символа"),
-  email: z.string().trim().toLowerCase().email("Неверный формат email"),
-  password: z.string().min(6, "Пароль должен содержать минимум 6 символов"),
+  name: z
+    .string()
+    .trim()
+    .min(2, "Имя должно содержать минимум 2 символа")
+    .max(NAME_MAX_LENGTH, `Имя должно быть не длиннее ${NAME_MAX_LENGTH} символов`),
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .max(EMAIL_MAX_LENGTH, "Слишком длинный email")
+    .email("Неверный формат email"),
+  password: z
+    .string()
+    .min(PASSWORD_MIN_LENGTH, `Пароль должен содержать минимум ${PASSWORD_MIN_LENGTH} символов`)
+    .refine(
+      passwordFits,
+      `Пароль слишком длинный: не больше ${PASSWORD_MAX_BYTES} латинских букв или ${PASSWORD_MAX_BYTES / 2} русских`
+    ),
 });
 
 const WINDOW_MS = 15 * 60 * 1000;
