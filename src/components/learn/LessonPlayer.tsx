@@ -88,6 +88,17 @@ export default function LessonPlayer({
   const appliedRef = useRef(0);
   /** Пока идёт анимация, второй ход не начинаем. */
   const busyRef = useRef(false);
+  /**
+   * Номер собранного куба. Ход, начатый на прежнем кубе, новому не засчитывается.
+   *
+   * Отменять начатый ход по cleanup эффекта нельзя (#136): эффект пересоздаётся
+   * от паузы, шага назад и смены скорости, а ход к этому времени уже идёт на
+   * кубе. Брошенный посреди анимации, он оставлял `busyRef` поднятым навсегда,
+   * а `appliedRef` — на ход позади картинки, и проигрыватель замирал. Поэтому
+   * начатый ход всегда доигрывается и засчитывается, а бросается только тогда,
+   * когда куба, на котором он шёл, больше нет.
+   */
+  const cubeGenerationRef = useRef(0);
   /** Меняется после каждой доигранной анимации и будит эффект синхронизации. */
   const [syncTick, setSyncTick] = useState(0);
 
@@ -120,6 +131,7 @@ export default function LessonPlayer({
   useEffect(() => {
     appliedRef.current = 0;
     busyRef.current = false;
+    cubeGenerationRef.current += 1;
     if (!cube) return;
 
     let cancelled = false;
@@ -156,21 +168,20 @@ export default function LessonPlayer({
     if (!move) return;
 
     busyRef.current = true;
-    let cancelled = false;
+    const generation = cubeGenerationRef.current;
+    const stale = () => cubeGenerationRef.current !== generation;
 
+    // Без cleanup: ход доигрывается при любых нажатиях, пока жив его куб, —
+    // см. cubeGenerationRef. Двойной ход тоже не обрывается между четвертями.
     void (async () => {
       for (const turn of sliceTurnsForMove(move)) {
         await cube.rotateSlice(turn.axis, turn.index, turn.direction, duration);
-        if (cancelled) return;
+        if (stale()) return;
       }
       appliedRef.current += forward ? 1 : -1;
       busyRef.current = false;
       setSyncTick((tick) => tick + 1);
     })();
-
-    return () => {
-      cancelled = true;
-    };
   }, [cube, state.moveIndex, state.playing, state.totalMoves, moves, duration, syncTick]);
 
   const finished = isFinished(state);

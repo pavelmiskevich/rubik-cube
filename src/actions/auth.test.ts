@@ -40,7 +40,7 @@ function form(fields: Record<string, string>) {
   return data;
 }
 
-const valid = { name: "Иван", email: "ivan@example.com", password: "secret1" };
+const valid = { name: "Иван", email: "ivan@example.com", password: "secret12" };
 
 function fromIp(ip: string) {
   headers.mockResolvedValue(new Headers({ "x-forwarded-for": ip }));
@@ -69,21 +69,21 @@ afterEach(() => {
 describe("registerUser", () => {
   it("пишет нормализованный email, обрезанное имя и хеш пароля стоимости 12", async () => {
     const result = await registerUser(
-      form({ name: "  Иван ", email: "  Ivan@Example.COM ", password: "secret1" })
+      form({ name: "  Иван ", email: "  Ivan@Example.COM ", password: "secret12" })
     );
 
     expect(result).toEqual({ success: true });
-    expect(hash).toHaveBeenCalledWith("secret1", 12);
+    expect(hash).toHaveBeenCalledWith("secret12", 12);
     expect(create).toHaveBeenCalledWith({
       data: { name: "Иван", email: "ivan@example.com", password: "hashed" },
     });
   });
 
   it("пароль не обрезается и в открытом виде в базу не попадает", async () => {
-    await registerUser(form({ ...valid, password: " secret1 " }));
+    await registerUser(form({ ...valid, password: " secret12 " }));
 
-    expect(hash).toHaveBeenCalledWith(" secret1 ", 12);
-    expect(JSON.stringify(create.mock.calls)).not.toContain("secret1");
+    expect(hash).toHaveBeenCalledWith(" secret12 ", 12);
+    expect(JSON.stringify(create.mock.calls)).not.toContain("secret12");
   });
 
   it("занятый email получает тот же ответ, что и свободный", async () => {
@@ -114,13 +114,48 @@ describe("registerUser", () => {
     ["имя из пробелов вокруг одной буквы", { ...valid, name: "  И  " }, "Имя должно содержать минимум 2 символа"],
     ["email без домена", { ...valid, email: "ivan@" }, "Неверный формат email"],
     ["email без @", { ...valid, email: "ivan.example.com" }, "Неверный формат email"],
-    ["пароль короче шести символов", { ...valid, password: "12345" }, "Пароль должен содержать минимум 6 символов"],
+    ["пароль короче восьми символов", { ...valid, password: "1234567" }, "Пароль должен содержать минимум 8 символов"],
   ])("%s — сообщение поля, без хеширования и записи", async (_name, fields, message) => {
     const result = await registerUser(form(fields));
 
     expect(result).toEqual({ error: message });
     expect(hash).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
+  });
+
+  describe("верхние границы (#117)", () => {
+    const LONG_PASSWORD = "Пароль слишком длинный: не больше 72 латинских букв или 36 русских";
+    /** Адрес ровно из n символов. */
+    const emailOf = (n: number) => `${"a".repeat(n - "@example.com".length)}@example.com`;
+
+    it.each([
+      ["имя из 65 символов", { ...valid, name: "И".repeat(65) }, "Имя должно быть не длиннее 64 символов"],
+      ["имя из 6000 символов", { ...valid, name: "И".repeat(6000) }, "Имя должно быть не длиннее 64 символов"],
+      ["email из 255 символов", { ...valid, email: emailOf(255) }, "Слишком длинный email"],
+      ["пароль из 73 латинских букв", { ...valid, password: "p".repeat(73) }, LONG_PASSWORD],
+      ["пароль из 37 русских букв — 74 байта", { ...valid, password: "п".repeat(37) }, LONG_PASSWORD],
+      ["пароль из 80 символов", { ...valid, password: "p".repeat(80) }, LONG_PASSWORD],
+    ])("%s — отказ, без хеширования и записи", async (_name, fields, message) => {
+      const result = await registerUser(form(fields));
+
+      expect(result).toEqual({ error: message });
+      expect(hash).not.toHaveBeenCalled();
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["имя из 64 символов", { ...valid, name: "И".repeat(64) }],
+      ["имя из 64 символов и пробелов вокруг", { ...valid, name: `  ${"И".repeat(64)}  ` }],
+      ["email из 254 символов", { ...valid, email: emailOf(254) }],
+      ["пароль из 72 латинских букв", { ...valid, password: "p".repeat(72) }],
+      ["пароль из 36 русских букв — 72 байта", { ...valid, password: "п".repeat(36) }],
+      ["пароль из 8 символов", { ...valid, password: "12345678" }],
+    ])("%s — на границе, принимается", async (_name, fields) => {
+      const result = await registerUser(form(fields));
+
+      expect(result).toEqual({ success: true });
+      expect(create).toHaveBeenCalledTimes(1);
+    });
   });
 
   it.each(["name", "email", "password"])("без поля %s — ошибка, без записи", async (field) => {

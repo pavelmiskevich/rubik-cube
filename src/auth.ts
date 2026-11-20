@@ -5,6 +5,7 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "./lib/prisma";
 import bcrypt from "bcryptjs";
 import { getClientIp } from "./lib/rate-limit";
+import { EMAIL_MAX_LENGTH, passwordFits } from "./lib/credentialLimits";
 import {
   LOGIN_RATE_LIMITED,
   loginBlocked,
@@ -33,9 +34,19 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
+        if (typeof credentials.email !== "string" || typeof credentials.password !== "string") {
+          return null;
+        }
 
-        const email = (credentials.email as string).trim().toLowerCase();
-        const password = credentials.password as string;
+        const email = credentials.email.trim().toLowerCase();
+        const password = credentials.password;
+
+        // Границы те же, что у регистрации (#117): такой аккаунт не мог
+        // появиться, и до лимита, базы и bcrypt запрос не идёт. Длинный пароль
+        // отклоняется, а не обрезается: иначе bcrypt принял бы любой хвост
+        // после 72-го байта. Нижней границы пароля здесь нет — аккаунты,
+        // заведённые при прежнем минимуме в 6 символов, входят как раньше.
+        if (email.length > EMAIL_MAX_LENGTH || !passwordFits(password)) return null;
 
         // Лимит — здесь, а не в форме: адрес входа библиотеки принимает
         // запросы и напрямую. Заблокированная попытка до базы и bcrypt не идёт.
