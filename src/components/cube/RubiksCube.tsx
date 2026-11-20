@@ -21,6 +21,7 @@ import { Axis, resolveDragRotation } from "./dragRotation";
 import { BODY_COLOR, STICKER_COLORS } from "./cubeTheme";
 import type { Move } from "@/lib/cube/moves";
 import { moveForSliceTurn } from "@/lib/cube/bridge";
+import { SliceQueue } from "./sliceQueue";
 
 const CUBIE_SIZE = 0.98;
 const CORNER_RADIUS = 0.12;
@@ -143,10 +144,9 @@ const CubeCore = forwardRef<
   const pivotRef = useRef<THREE.Group>(null);
   const cubiesRef = useRef<THREE.Mesh[]>([]);
 
-  const animating = useRef(false);
-  const animQueue = useRef<Array<() => void>>([]);
+  /** Повороты по одному; снятый куб разрешает все их обещания — sliceQueue.ts. */
+  const [queue] = useState(() => new SliceQueue());
   const rafRef = useRef<number | null>(null);
-  const mounted = useRef(true);
 
   const dragStart = useRef<{
     point: THREE.Vector3;
@@ -199,106 +199,85 @@ const CubeCore = forwardRef<
   }, [body, bodyMaterial, sticker, stickerMaterials]);
 
   // Any in-flight animation and every queued rotation must settle on unmount,
-  // otherwise their callers await a promise that can never resolve.
+  // otherwise their callers await a promise that can never resolve. The
+  // in-flight one used to be missed: only the end of its animation settled it,
+  // and that frame is cancelled here (#139).
   useEffect(() => {
-    mounted.current = true;
+    queue.open();
     return () => {
-      mounted.current = false;
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
-      animating.current = false;
-      const pending = animQueue.current;
-      animQueue.current = [];
-      pending.forEach((settle) => settle());
+      queue.close();
     };
-  }, []);
-
-  const runNext = useCallback(() => {
-    const next = animQueue.current.shift();
-    next?.();
-  }, []);
+  }, [queue]);
 
   const rotateSlice = useCallback(
-    (axis: Axis, index: number, direction: number, duration = DEFAULT_DURATION): Promise<void> =>
-      new Promise((resolve) => {
-        // Math.sign() returns 0 for a perfectly axis-aligned drag; animating a
-        // zero-degree turn would still re-snap every cubie for no visible change.
-        if (direction === 0) {
-          resolve();
+    (axis: Axis, index: number, direction: number, duration = DEFAULT_DURATION): Promise<void> => {
+      // Math.sign() returns 0 for a perfectly axis-aligned drag; animating a
+      // zero-degree turn would still re-snap every cubie for no visible change.
+      if (direction === 0) return Promise.resolve();
+
+      return queue.run((finish) => {
+        const group = groupRef.current;
+        const pivot = pivotRef.current;
+        if (!group || !pivot) {
+          finish();
           return;
         }
 
-        const task = () => {
-          const group = groupRef.current;
-          const pivot = pivotRef.current;
-          if (!group || !pivot || !mounted.current) {
-            resolve();
-            runNext();
+        pivot.rotation.set(0, 0, 0);
+        pivot.updateMatrixWorld();
+
+        const activeCubies: THREE.Mesh[] = [];
+        cubiesRef.current.forEach((cubie) => {
+          const worldPos = new THREE.Vector3();
+          cubie.getWorldPosition(worldPos);
+          if (Math.round(worldPos[axis]) === index) {
+            activeCubies.push(cubie);
+            pivot.attach(cubie);
+          }
+        });
+
+        const targetRotation = (direction * Math.PI) / 2;
+        const startTime = performance.now();
+
+        const animate = () => {
+          const progress = Math.min((performance.now() - startTime) / duration, 1);
+          // easeInOutQuad
+          const ease =
+            progress < 0.5 ? 2 * progress * progress : -1 + (4 - 2 * progress) * progress;
+
+          pivot.rotation[axis] = targetRotation * ease;
+
+          if (progress < 1) {
+            rafRef.current = requestAnimationFrame(animate);
             return;
           }
 
-          animating.current = true;
-          pivot.rotation.set(0, 0, 0);
+          rafRef.current = null;
+          pivot.rotation[axis] = targetRotation;
           pivot.updateMatrixWorld();
 
-          const activeCubies: THREE.Mesh[] = [];
-          cubiesRef.current.forEach((cubie) => {
+          activeCubies.forEach((cubie) => {
+            group.attach(cubie);
             const worldPos = new THREE.Vector3();
             cubie.getWorldPosition(worldPos);
-            if (Math.round(worldPos[axis]) === index) {
-              activeCubies.push(cubie);
-              pivot.attach(cubie);
-            }
+            cubie.userData.logicalPosition.set(
+              Math.round(worldPos.x),
+              Math.round(worldPos.y),
+              Math.round(worldPos.z)
+            );
           });
 
-          const targetRotation = (direction * Math.PI) / 2;
-          const startTime = performance.now();
-
-          const animate = () => {
-            const progress = Math.min((performance.now() - startTime) / duration, 1);
-            // easeInOutQuad
-            const ease =
-              progress < 0.5 ? 2 * progress * progress : -1 + (4 - 2 * progress) * progress;
-
-            pivot.rotation[axis] = targetRotation * ease;
-
-            if (progress < 1) {
-              rafRef.current = requestAnimationFrame(animate);
-              return;
-            }
-
-            rafRef.current = null;
-            pivot.rotation[axis] = targetRotation;
-            pivot.updateMatrixWorld();
-
-            activeCubies.forEach((cubie) => {
-              group.attach(cubie);
-              const worldPos = new THREE.Vector3();
-              cubie.getWorldPosition(worldPos);
-              cubie.userData.logicalPosition.set(
-                Math.round(worldPos.x),
-                Math.round(worldPos.y),
-                Math.round(worldPos.z)
-              );
-            });
-
-            pivot.rotation.set(0, 0, 0);
-            animating.current = false;
-            onRotateEnd?.();
-            resolve();
-            runNext();
-          };
-
-          rafRef.current = requestAnimationFrame(animate);
+          pivot.rotation.set(0, 0, 0);
+          onRotateEnd?.();
+          finish();
         };
 
-        if (animating.current) {
-          animQueue.current.push(task);
-        } else {
-          task();
-        }
-      }),
-    [onRotateEnd, runNext]
+        rafRef.current = requestAnimationFrame(animate);
+      });
+    },
+    [onRotateEnd, queue]
   );
 
   useImperativeHandle(ref, () => ({ rotateSlice }), [rotateSlice]);
@@ -336,7 +315,7 @@ const CubeCore = forwardRef<
 
   const handlePointerDown = (event: ThreeEvent<PointerEvent>) => {
     event.stopPropagation();
-    if (animating.current) return;
+    if (queue.busy) return;
 
     setOrbitEnabled(false);
 
@@ -355,7 +334,7 @@ const CubeCore = forwardRef<
   };
 
   const handlePointerMove = (event: ThreeEvent<PointerEvent>) => {
-    if (!dragStart.current || animating.current) return;
+    if (!dragStart.current || queue.busy) return;
 
     // The ray crosses several cubies, and react-three-fiber dispatches this
     // handler once per intersection, nearest first. Only the nearest one is on
