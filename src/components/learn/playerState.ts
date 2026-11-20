@@ -75,10 +75,14 @@ export function playerReducer(state: PlayerState, event: PlayerEvent): PlayerSta
     case "pause":
       return { ...state, playing: false };
 
-    case "forward":
-      return state.moveIndex >= state.totalMoves
-        ? { ...state, playing: false }
-        : { ...state, moveIndex: state.moveIndex + 1 };
+    case "forward": {
+      if (state.moveIndex >= state.totalMoves) return { ...state, playing: false };
+      // Последний ход — и проигрывание кончилось. Ждать ещё одного forward
+      // нельзя: проигрыватель после последнего хода его не шлёт, и кнопка
+      // оставалась бы «Пауза» на остановленном уроке (#140).
+      const moveIndex = state.moveIndex + 1;
+      return { ...state, moveIndex, playing: state.playing && moveIndex < state.totalMoves };
+    }
 
     case "back":
       // Шаг назад — действие руками, и продолжать проигрывание после него
