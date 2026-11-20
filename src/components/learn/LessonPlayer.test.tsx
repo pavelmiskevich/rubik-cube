@@ -235,6 +235,9 @@ describe("LessonPlayer: «Посмотреть» и прогресс", () => {
 
     expect(screen.getByText(`Ход ${total} из ${total}`)).toBeTruthy();
     expect(screen.getByTestId("lesson-completed")).toBeTruthy();
+    // Проигрывание кончилось само — кнопка предлагает повтор, а не паузу (#140).
+    expect(screen.getByRole("button", { name: "Ещё раз" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Пауза" })).toBeNull();
   });
 
   it("возвращает к шагу, на котором остановились", async () => {

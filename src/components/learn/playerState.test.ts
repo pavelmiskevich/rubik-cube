@@ -35,8 +35,30 @@ describe("состояние проигрывателя урока", () => {
     expect(isFinished(state)).toBe(true);
   });
 
-  it("само снимает проигрывание, когда ходы кончились", () => {
-    const state = run(start(1), { type: "play" }, { type: "forward" }, { type: "forward" });
+  /*
+    Проигрыватель шлёт forward, только пока ходы не кончились
+    (LessonPlayer.tsx): лишнего forward после последнего хода не бывает. Прежний
+    тест слал его и потому был зелёным, а на экране кнопка оставалась «Пауза» (#140).
+  */
+  it("само снимает проигрывание на последнем ходу — без лишнего forward", () => {
+    const state = run(start(1), { type: "play" }, { type: "forward" });
+
+    expect(state.moveIndex).toBe(1);
+    expect(state.playing).toBe(false);
+    expect(isFinished(state)).toBe(true);
+  });
+
+  it("до последнего хода проигрывание идёт, на нём — снимается", () => {
+    let state = run(start(3), { type: "play" });
+    state = run(state, { type: "forward" }, { type: "forward" });
+    expect(state.playing).toBe(true);
+
+    state = playerReducer(state, { type: "forward" });
+    expect(state.playing).toBe(false);
+  });
+
+  it("forward на паузе проигрывание не включает", () => {
+    const state = run(start(2), { type: "forward" }, { type: "forward" });
     expect(state.playing).toBe(false);
   });
 
