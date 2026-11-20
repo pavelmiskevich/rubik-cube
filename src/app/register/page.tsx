@@ -7,6 +7,12 @@ import Link from "next/link";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import Field from "@/components/ui/Field";
+import {
+  EMAIL_MAX_LENGTH,
+  NAME_MAX_LENGTH,
+  PASSWORD_MAX_BYTES,
+  PASSWORD_MIN_LENGTH,
+} from "@/lib/credentialLimits";
 
 export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
@@ -36,12 +42,21 @@ export default function RegisterPage() {
               {error}
             </p>
           )}
-          <Field label="Имя" name="name" type="text" autoComplete="name" required />
+          {/* Длины — подсказка браузеру, а проверка — на сервере (#117). */}
+          <Field
+            label="Имя"
+            name="name"
+            type="text"
+            autoComplete="name"
+            maxLength={NAME_MAX_LENGTH}
+            required
+          />
           <Field
             label="Электронная почта"
             name="email"
             type="email"
             autoComplete="email"
+            maxLength={EMAIL_MAX_LENGTH}
             required
           />
           <Field
@@ -49,6 +64,8 @@ export default function RegisterPage() {
             name="password"
             type="password"
             autoComplete="new-password"
+            minLength={PASSWORD_MIN_LENGTH}
+            maxLength={PASSWORD_MAX_BYTES}
             required
           />
           <Button type="submit" disabled={loading} className="w-full">
