@@ -76,7 +76,7 @@ export default function StyleguidePage() {
             label="Пароль"
             name="demo-password"
             type="password"
-            placeholder="Не менее 6 символов"
+            placeholder="Не менее 8 символов"
           />
         </div>
       </section>

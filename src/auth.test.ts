@@ -195,6 +195,49 @@ describe("authorize: неполные учётные данные", () => {
   });
 });
 
+describe("authorize: границы те же, что у регистрации (#117)", () => {
+  const emailOf = (n: number) => `${"a".repeat(n - "@example.com".length)}@example.com`;
+
+  it.each([
+    ["email из 255 символов", { email: emailOf(255), password: "secret1" }],
+    ["пароль из 73 байт", { email: "ivan@example.com", password: "p".repeat(73) }],
+    ["пароль из 37 русских букв — 74 байта", { email: "ivan@example.com", password: "п".repeat(37) }],
+    ["не строки", { email: ["ivan@example.com"], password: { length: 1 } }],
+  ])("%s — null без базы и bcrypt", async (_name, credentials) => {
+    const result = await authorize(credentials);
+
+    expect(result).toBeNull();
+    expect(findUnique).not.toHaveBeenCalled();
+    expect(compare).not.toHaveBeenCalled();
+  });
+
+  it("пароль, совпадающий с настоящим в первых 72 байтах, не входит", async () => {
+    // Настоящий bcrypt принял бы такой пароль: хвост после 72-го байта он
+    // отбрасывает. Проверка длины не пускает запрос до сравнения вовсе.
+    findUnique.mockResolvedValue(storedUser);
+    compare.mockResolvedValue(true);
+
+    const result = await authorize({ email: "ivan@example.com", password: `${"p".repeat(72)}хвост` });
+
+    expect(result).toBeNull();
+    expect(compare).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["email из 254 символов", { email: emailOf(254), password: "secret1" }],
+    ["пароль из 72 байт", { email: "ivan@example.com", password: "п".repeat(36) }],
+    ["пароль короче нового минимума — аккаунты прежних правил", { email: "ivan@example.com", password: "secret" }],
+  ])("%s — доходит до проверки пароля", async (_name, credentials) => {
+    findUnique.mockResolvedValue(storedUser);
+    compare.mockResolvedValue(true);
+
+    const result = await authorize(credentials);
+
+    expect(compare).toHaveBeenCalledWith(credentials.password, HASH);
+    expect(result).toEqual(expect.objectContaining({ id: "user-1" }));
+  });
+});
+
 describe("authorize: лимит неудач", () => {
   const wrong = { email: "ivan@example.com", password: "wrong-pass" };
 

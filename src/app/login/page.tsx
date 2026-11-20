@@ -8,6 +8,7 @@ import { useSearchParams } from "next/navigation";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import Field from "@/components/ui/Field";
+import { EMAIL_MAX_LENGTH } from "@/lib/credentialLimits";
 
 function LoginForm() {
   const [error, setError] = useState<string | null>(null);
@@ -47,6 +48,7 @@ function LoginForm() {
           name="email"
           type="email"
           autoComplete="email"
+          maxLength={EMAIL_MAX_LENGTH}
           required
         />
         <Field
