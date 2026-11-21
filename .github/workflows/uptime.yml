@@ -1,0 +1,39 @@
+name: Uptime
+
+# Слежение за доступностью прода снаружи (#120): 13 ноября 2026 сайт не
+# отвечал, и узнали об этом случайно. Проверяются `/`, `/api/health` (200
+# только при живой базе) и срок сертификата — скрипт deploy/uptime-check.
+#
+# Упавший запуск — письмо владельцу от GitHub. Что делать — deploy/README.md,
+# «Слежение за доступностью».
+#
+# Расписание GitHub неточное: запуски задерживаются до десятков минут, а то и
+# пропускаются. Это сигнал «сайт лежит давно», а не точный мониторинг. После
+# 60 дней без активности в репозитории расписание отключается — как у Backup.
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+
+# Медленный запуск не должен копиться очередью за следующим.
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    # Выключатель, как DEPLOY_ENABLED у выкладки: без выложенного сайта
+    # проверять нечего.
+    if: vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: deploy/uptime-check
+          sparse-checkout-cone-mode: false
+      - name: Check site
+        run: bash deploy/uptime-check https://rubik-cube.miskevich.ru

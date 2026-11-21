@@ -61,9 +61,15 @@ compose up -d --remove-orphans || fail "docker compose up не прошёл"
 
 # up возвращается, как только контейнеры стартовали, — это ещё не ответ
 # приложения. Без проверки зацикленный перезапуск выглядел бы успехом.
+# /api/health отвечает 200, только если приложение достучалось до базы (#120).
+# Релизы до него отвечают на этот адрес 404 — тогда проверяется /, иначе
+# откат на такой релиз никогда бы не прошёл.
 code=""
 for _ in $(seq 1 30); do
-  code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${port}/" || true)
+  code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${port}/api/health" || true)
+  if [[ "$code" == "404" ]]; then
+    code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${port}/" || true)
+  fi
   [[ "$code" == "200" ]] && break
   sleep 2
 done
