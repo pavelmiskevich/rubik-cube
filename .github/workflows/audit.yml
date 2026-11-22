@@ -1,0 +1,37 @@
+name: Audit
+
+# Уязвимости зависимостей — каждый день, а не только на PR (#119). Без этого
+# прод мог стоять с известной уязвимостью, пока кто-нибудь не откроет PR:
+# критическая уязвимость фреймворка так и нашлась — случайно, на постороннем
+# PR (#111).
+#
+# Упавший запуск — письмо владельцу: появилось адвизори уровня high или
+# выше. Что делать — в STATE.md, «Открытые задачи»: по каждому high проверить,
+# есть ли исправленная версия, и поднимать через "overrides", без исключений
+# в audit-ci.
+#
+# Проверка для PR — job `audit` в ci.yml; здесь та же команда.
+#
+# Расписание GitHub неточное (задержки до десятков минут) и отключается после
+# 60 дней без активности в репозитории — как у workflow Backup.
+on:
+  schedule:
+    - cron: "40 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: 'npm'
+      - run: npm ci
+      - name: Audit dependencies
+        run: npx audit-ci --high

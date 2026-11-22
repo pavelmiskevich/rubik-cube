@@ -1,0 +1,54 @@
+# Обновления зависимостей (#119). Раз в неделю, мелкие обновления — одним PR
+# на экосистему, чтобы не тонуть в PR: при защите main с требованием актуальной
+# ветки каждый открытый PR после вливания соседнего становится BEHIND и требует
+# `gh pr update-branch`.
+#
+# Исправления безопасности приходят отдельно и сразу, если они включены в
+# настройках репозитория; их тоже собираем в один PR на экосистему.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+      npm-security:
+        applies-to: security-updates
+        patterns: ["*"]
+    ignore:
+      # Мажорная версия Node меняется вместе с .nvmrc и образом (#118) —
+      # отдельной задачей, а не обновлением типов.
+      - dependency-name: "@types/node"
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 2
+    ignore:
+      # Мажорная версия Node — вместе с .nvmrc, CI и engines (#118).
+      - dependency-name: node
+        update-types: [version-update:semver-major]
