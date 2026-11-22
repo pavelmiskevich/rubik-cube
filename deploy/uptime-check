@@ -1,0 +1,68 @@
+#!/bin/bash
+# Проверка доступности сайта снаружи (#120). Запускает её workflow Uptime по
+# расписанию, на сервер скрипт не ставится.
+#
+#   uptime-check https://rubik-cube.miskevich.ru [мин. дней сертификата]
+#
+# Проверяет:
+#   - `/` отвечает 200 — сайт открывается;
+#   - `/api/health` отвечает 200 — приложение достаёт до базы;
+#   - сертификат (для https) действует ещё не меньше заданного числа дней,
+#     по умолчанию 7: веб-сервер продлевает его сильно заранее, и если до
+#     конца осталась неделя, продление сломалось.
+# Каждый адрес пробуется до трёх раз с паузой RETRY_DELAY секунд (по
+# умолчанию 20), чтобы перезапуск при выкладке не давал ложной тревоги.
+# Код выхода 1, если хоть одна проверка не прошла.
+set -euo pipefail
+
+base=${1:?"адрес сайта: uptime-check https://host [дней]"}
+base=${base%/}
+min_days=${2:-7}
+delay=${RETRY_DELAY:-20}
+failed=0
+
+check_url() {
+  local path=$1 code=""
+  for attempt in 1 2 3; do
+    code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$base$path" 2>/dev/null) || code=${code:-000}
+    [[ "$code" == "200" ]] && break
+    if [[ $attempt -lt 3 ]]; then sleep "$delay"; fi
+  done
+  if [[ "$code" == "200" ]]; then
+    echo "ok   $path — 200"
+  else
+    echo "FAIL $path — код ${code:-нет} после трёх попыток"
+    failed=1
+  fi
+}
+
+check_cert() {
+  local hostport=${base#https://}
+  hostport=${hostport%%/*}
+  local host=${hostport%%:*} port=443
+  if [[ "$hostport" == *:* ]]; then port=${hostport##*:}; fi
+
+  local cert
+  if ! cert=$(openssl s_client -connect "$host:$port" -servername "$host" </dev/null 2>/dev/null \
+      | openssl x509 2>/dev/null) || [[ -z "$cert" ]]; then
+    echo "FAIL сертификат — не удалось получить"
+    failed=1
+    return
+  fi
+  local end
+  end=$(openssl x509 -noout -enddate <<<"$cert" | cut -d= -f2)
+  if openssl x509 -noout -checkend $((min_days * 86400)) <<<"$cert" >/dev/null; then
+    echo "ok   сертификат — до $end"
+  else
+    echo "FAIL сертификат — истекает $end, меньше чем через $min_days дн."
+    failed=1
+  fi
+}
+
+check_url /
+check_url /api/health
+if [[ "$base" == https://* ]]; then
+  check_cert
+fi
+
+exit "$failed"

@@ -28,7 +28,7 @@ jobs:
         run: >
           shellcheck deploy/rubik-cube-deploy deploy/rubik-cube-deploy-ssh
           deploy/rubik-cube-backup deploy/rubik-cube-backup-ssh
-          deploy/test/backup.test.sh
+          deploy/test/backup.test.sh deploy/uptime-check
 
       - name: Install age
         run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends age
