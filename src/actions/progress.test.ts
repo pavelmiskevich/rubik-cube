@@ -32,6 +32,8 @@ beforeEach(() => {
   upsert.mockReset();
   findMany.mockReset();
   transaction.mockReset();
+  // Счётчики лимитов — на globalThis, общие для всех тестов файла.
+  (globalThis as { rateLimitBuckets?: Map<string, unknown> }).rateLimitBuckets?.clear();
   jest.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -253,5 +255,46 @@ describe("mergeLessonProgress — прогресс анонима в аккау�
 
     expect(result).toEqual({ success: false, error: expect.any(String) });
     expect(console.error).toHaveBeenCalled();
+  });
+});
+
+describe("лимиты частоты прогресса (#126)", () => {
+  beforeEach(() => {
+    jest.spyOn(Date, "now").mockReturnValue(1_000_000);
+    auth.mockResolvedValue({ user: { id: "user-1" } });
+    upsert.mockResolvedValue({});
+    findMany.mockResolvedValue([]);
+    transaction.mockImplementation(async (ops: unknown[]) => ops);
+  });
+
+  it("сохранение места в уроке: 120 в минуту проходят, дальше отказ без записи", async () => {
+    for (let i = 0; i < 120; i++) {
+      expect(await saveLessonProgress(lesson.slug, 1, false)).toEqual({ success: true });
+    }
+
+    const result = await saveLessonProgress(lesson.slug, 1, false);
+
+    expect(result).toEqual({
+      success: false,
+      error: expect.stringMatching(/^Слишком часто — попробуйте через \d+ с$/),
+    });
+    expect(upsert).toHaveBeenCalledTimes(120);
+  });
+
+  it("перенос прогресса: десять в минуту, одиннадцатый не читает базу", async () => {
+    const local = { [lesson.slug]: { stepIndex: 1, completed: false } };
+    for (let i = 0; i < 10; i++) expect((await mergeLessonProgress(local)).success).toBe(true);
+
+    const result = await mergeLessonProgress(local);
+
+    expect(result.success).toBe(false);
+    expect(findMany).toHaveBeenCalledTimes(10);
+  });
+
+  it("лимит у каждого свой", async () => {
+    for (let i = 0; i < 120; i++) await saveLessonProgress(lesson.slug, 1, false);
+
+    auth.mockResolvedValue({ user: { id: "user-2" } });
+    expect(await saveLessonProgress(lesson.slug, 1, false)).toEqual({ success: true });
   });
 });

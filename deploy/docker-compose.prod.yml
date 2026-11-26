@@ -28,6 +28,9 @@ services:
       AUTH_SECRET: ${AUTH_SECRET:?}
       AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID:-}
       AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET:-}
+      # Потолок сборок одного человека, старые сверх него вытесняются (#126).
+      # Пусто — 1000.
+      MAX_SOLVES_PER_USER: ${MAX_SOLVES_PER_USER:-}
     ports:
       - "127.0.0.1:${HOST_PORT:-3030}:3000"
     depends_on:

@@ -3,6 +3,8 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { solveLessonSlug } from "@/lib/practiceLesson";
+import { rateLimit } from "@/lib/rate-limit";
+import { SOLVE_BURST, SOLVE_HOURLY, maxSolvesPerUser, tooFrequent } from "@/lib/saveLimits";
 
 const DEFAULT_SESSION_NAME = "Main 3x3";
 
@@ -39,6 +41,13 @@ export async function saveSolve(
     return { success: false, error: "Некорректное время сборки" };
   }
 
+  // Лимиты частоты — по пользователю (#126): без них вошедший человек
+  // циклом записал бы миллионы строк в базу на общем сервере.
+  for (const [name, window] of [["burst", SOLVE_BURST], ["hour", SOLVE_HOURLY]] as const) {
+    const verdict = rateLimit(`solve:${name}:${userId}`, window);
+    if (!verdict.allowed) return { success: false, error: tooFrequent(verdict.retryAfterMs) };
+  }
+
   try {
     // The default session is keyed by the user id so it can be upserted.
     // Looking it up and creating it when missing would let two solves that
@@ -58,10 +67,33 @@ export async function saveSolve(
         lessonSlug: solveLessonSlug(lessonSlug),
       },
     });
-
-    return { success: true };
   } catch (error) {
     console.error("saveSolve failed", error);
     return { success: false, error: "Не удалось сохранить результат" };
+  }
+
+  await trimOldSolves(userId);
+  return { success: true };
+}
+
+/**
+ * Потолок сборок одного человека (#126) — предохранитель общего диска:
+ * счётчики лимитов частоты сбрасываются при перезапуске, потолок — нет.
+ * Сверх него вытесняются самые старые сборки (решение владельца); значение —
+ * `MAX_SOLVES_PER_USER`, по умолчанию 1000. Сбой здесь записанную сборку не
+ * отменяет: лишние строки уйдут при следующем сохранении.
+ */
+async function trimOldSolves(userId: string): Promise<void> {
+  try {
+    const stale = await prisma.solve.findMany({
+      where: { trainingSession: { userId } },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      skip: maxSolvesPerUser(),
+      select: { id: true },
+    });
+    if (stale.length === 0) return;
+    await prisma.solve.deleteMany({ where: { id: { in: stale.map((solve) => solve.id) } } });
+  } catch (error) {
+    console.error("trimOldSolves failed", error);
   }
 }
