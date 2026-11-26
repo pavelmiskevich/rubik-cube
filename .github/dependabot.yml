@@ -23,9 +23,13 @@ updates:
         applies-to: security-updates
         patterns: ["*"]
     ignore:
-      # Мажорная версия Node меняется вместе с .nvmrc и образом (#118) —
-      # отдельной задачей, а не обновлением типов.
-      - dependency-name: "@types/node"
+      # Мажорные версии npm плановым PR не предлагаются (решение владельца,
+      # 26.11.2026): первые же — TypeScript 7, Tailwind 4, Cypress 16 — пришли
+      # с красными проверками, а переход на них — отдельная задача с
+      # миграцией. Сюда же мажорная версия Node (@types/node) — она меняется
+      # вместе с .nvmrc и образом (#118). Если исправление уязвимости найдётся
+      # только в мажорной версии, об этом скажет красный workflow Audit.
+      - dependency-name: "*"
         update-types: [version-update:semver-major]
 
   - package-ecosystem: github-actions
