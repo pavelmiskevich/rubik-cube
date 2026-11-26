@@ -10,6 +10,8 @@ import {
   type ProgressEntry,
 } from "@/lib/lessonProgress";
 import { progressToWrite, type MergeLessonProgressResult } from "@/lib/progressMerge";
+import { rateLimit } from "@/lib/rate-limit";
+import { PROGRESS_MERGE, PROGRESS_SAVE, tooFrequent } from "@/lib/saveLimits";
 
 export type SaveLessonProgressResult =
   | { success: true }
@@ -33,6 +35,11 @@ export async function saveLessonProgress(
   if (!userId) {
     return { success: false, error: "Войдите, чтобы сохранять прогресс" };
   }
+
+  // Строк здесь не прибавляется — одна на урок, — но каждый вызов идёт в базу
+  // на общем сервере (#126). Лимит по пользователю, щедрый: пишется каждый шаг.
+  const verdict = rateLimit(`progress:save:${userId}`, PROGRESS_SAVE);
+  if (!verdict.allowed) return { success: false, error: tooFrequent(verdict.retryAfterMs) };
 
   const lesson = typeof lessonSlug === "string" ? getLesson(lessonSlug) : undefined;
   if (!lesson) {
@@ -89,6 +96,11 @@ export async function mergeLessonProgress(local: unknown): Promise<MergeLessonPr
   if (!userId) {
     return { success: false, error: "Войдите, чтобы сохранять прогресс" };
   }
+
+  // Слияние — раз при входе; отказ клиент переживает: локальная копия ждёт
+  // следующего входа (#126).
+  const verdict = rateLimit(`progress:merge:${userId}`, PROGRESS_MERGE);
+  if (!verdict.allowed) return { success: false, error: tooFrequent(verdict.retryAfterMs) };
 
   // Неизвестные уроки и битые записи выпадают, шаг прижимается к уроку:
   // больше, чем по строке на урок курса, отсюда не написать.
