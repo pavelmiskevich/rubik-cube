@@ -6,6 +6,7 @@ import { prisma } from "./lib/prisma";
 import bcrypt from "bcryptjs";
 import { getClientIp } from "./lib/rate-limit";
 import { EMAIL_MAX_LENGTH, passwordFits } from "./lib/credentialLimits";
+import { googleConfigured } from "./lib/googleAuth";
 import {
   LOGIN_RATE_LIMITED,
   loginBlocked,
@@ -26,7 +27,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: PrismaAdapter(prisma as any),
   session: { strategy: "jwt" },
   providers: [
-    Google,
+    // Без ключей Google не подключается (#124): кнопка на /login смотрит на
+    // то же условие.
+    ...(googleConfigured() ? [Google] : []),
     Credentials({
       credentials: {
         email: { label: "Email", type: "email" },

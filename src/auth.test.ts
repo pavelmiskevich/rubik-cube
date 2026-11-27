@@ -336,3 +336,40 @@ describe("колбэки сессии", () => {
     expect(result.user.id).toBe("user-1");
   });
 });
+
+describe("провайдер Google — только с обоими ключами (#124)", () => {
+  const saved = { id: process.env.AUTH_GOOGLE_ID, secret: process.env.AUTH_GOOGLE_SECRET };
+  const original = captured;
+
+  afterEach(() => {
+    process.env.AUTH_GOOGLE_ID = saved.id;
+    process.env.AUTH_GOOGLE_SECRET = saved.secret;
+    if (saved.id === undefined) delete process.env.AUTH_GOOGLE_ID;
+    if (saved.secret === undefined) delete process.env.AUTH_GOOGLE_SECRET;
+    captured = original;
+  });
+
+  /** Провайдеры конфигурации, собранной заново при заданных ключах. */
+  async function providerIds(id: string | undefined, secret: string | undefined) {
+    if (id === undefined) delete process.env.AUTH_GOOGLE_ID;
+    else process.env.AUTH_GOOGLE_ID = id;
+    if (secret === undefined) delete process.env.AUTH_GOOGLE_SECRET;
+    else process.env.AUTH_GOOGLE_SECRET = secret;
+    await jest.isolateModulesAsync(async () => {
+      await import("./auth");
+    });
+    return captured!.providers.map((p) => (p as { id: string }).id);
+  }
+
+  it("без ключей — только вход по паролю: /api/auth/providers не перечислит google", async () => {
+    expect(await providerIds(undefined, undefined)).toEqual(["credentials"]);
+  });
+
+  it("пустые ключи, как в прод-шаблоне, — тоже без Google", async () => {
+    expect(await providerIds("", "")).toEqual(["credentials"]);
+  });
+
+  it("с обоими ключами — Google и пароль, как прежде", async () => {
+    expect(await providerIds("id", "secret")).toEqual(["google", "credentials"]);
+  });
+});
