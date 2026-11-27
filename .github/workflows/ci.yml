@@ -6,16 +6,33 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# Права токена — в файле, а не только в настройке репозитория (#143): смена
+# настройки не должна молча расширять права CI.
+permissions:
+  contents: read
+
+# Новый пуш в PR отменяет идущий прогон того же PR. На main у каждого коммита
+# своя группа: в общей новый ожидающий прогон вытеснял бы старый даже без
+# cancel-in-progress, и коммит в main остался бы без завершённой проверки.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Имена job'ов audit, build, e2e не менять: это обязательные проверки защиты
+# main.
 jobs:
   audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: 'npm'
-      - run: npm ci
+      # Скрипты пакетов здесь не нужны: проверяется только дерево зависимостей,
+      # а postinstall генерировал бы клиент базы впустую.
+      - run: npm ci --ignore-scripts
       - name: Audit dependencies
         # Исключений нет: уязвимые транзитивные зависимости CLI-пакета prisma
         # (deepmerge-ts, mysql2) подняты до исправленных версий через
@@ -27,6 +44,7 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Setup Node.js
@@ -35,11 +53,10 @@ jobs:
           node-version-file: .nvmrc
           cache: 'npm'
 
+      # Клиент базы генерирует postinstall (prisma generate) — отдельный шаг
+      # делал то же второй раз.
       - name: Install dependencies
         run: npm ci
-
-      - name: Prisma generate
-        run: npx prisma generate
 
       - name: Lint
         run: npm run lint
