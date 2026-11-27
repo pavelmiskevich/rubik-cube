@@ -20,7 +20,7 @@ permissions:
 jobs:
   scripts:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -28,7 +28,13 @@ jobs:
         run: >
           shellcheck deploy/rubik-cube-deploy deploy/rubik-cube-deploy-ssh
           deploy/rubik-cube-backup deploy/rubik-cube-backup-ssh
-          deploy/test/backup.test.sh deploy/uptime-check
+          deploy/test/backup.test.sh deploy/test/deploy.test.sh
+          deploy/uptime-check
+
+      # Порядок выкладки, откат и блокировка (#121). Root не нужен: стенд во
+      # временном каталоге, а Docker раннеру доступен и так.
+      - name: Deploy script test
+        run: bash deploy/test/deploy.test.sh
 
       - name: Install age
         run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends age
